@@ -7,68 +7,62 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-
 model User {
-  id          String   @id @default(uuid())
-  email       String   @unique
-  username    String   @unique
-  firstname   String
-  lastname    String
-  avatar      String
-  role        Role     @default(USER)
-  verificated Boolean  @default(false)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @default(now())
-
-  articles    Article[] @relation("Author")
-
+  id        String   @id @default(uuid())
+  username  String   @unique
+  firstname String
+  lastname  String
+  avatar    String   @default("")
+  
+  articles  Article[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
   @@map("users")
-}
-
-enum Role {
-  USER
-  MODERATOR
-  ADMIN
-}
-
-model Article {
-  id              String     @id @default(uuid())
-  title           String
-  description     String
-  content         Json
-  cover           String
-  status          ArticleStatus
-  published_at    DateTime?
-  createdAt       DateTime   @default(now())
-  updatedAt       DateTime   @default(now())
-
-  authorId        String
-  author          User       @relation("Author", fields: [authorId], references: [id])
-
-  mainCategoryId  String
-  mainCategory    Category   @relation("MainCategory", fields: [mainCategoryId], references: [id])
-
-  categories      Category[] @relation("ArticleCategories")
-
-  @@map("articles")
-}
-
-enum ArticleStatus {
-  PUBLISHED
-  ARCHIVED
-  DRAFT
 }
 
 model Category {
   id          String   @id @default(uuid())
   name        String   @unique
-  emoji       String   @unique
-  lightColor  String
-  accentColor String
-  darkColor   String
-
-  articlesMain    Article[] @relation("MainCategory")
-  articles        Article[] @relation("ArticleCategories")
-
+  emoji       String
+  
+  colors      Json
+  
+  articles    Article[] @relation("ArticleCategories")
+  mainArticles Article[] @relation("MainCategory")
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
   @@map("categories")
+}
+
+model Article {
+  id            String   @id @default(uuid())
+  title         String
+  description   String?
+  content       Json     // Храним Content как JSON
+  
+  authorId      String
+  author        User     @relation(fields: [authorId], references: [id])
+  
+  mainCategoryId String
+  mainCategory  Category @relation("MainCategory", fields: [mainCategoryId], references: [id])
+  
+  categories    Category[] @relation("ArticleCategories")
+  
+  status        ArticleStatus @default(draft)
+  
+  publishedAt   DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  
+  @@map("articles")
+}
+
+enum ArticleStatus {
+  published
+  draft
+  archived
+  review
 }
