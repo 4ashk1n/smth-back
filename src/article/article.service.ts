@@ -1,4 +1,4 @@
-import { Injectable, InternalServerErrorException, NotFoundException } from "@nestjs/common";
+import { Injectable, NotFoundException } from "@nestjs/common";
 import {
   ArticleDTOSchema,
   ArticleListQuerySchema,
@@ -18,6 +18,9 @@ type ListQuery = z.infer<typeof ArticleListQuerySchema>;
 
 @Injectable()
 export class ArticleService {
+  private testAuthorId: string | null = null;
+  private testCategoryId: string | null = null;
+
   constructor(private readonly prisma: PrismaService) { }
 
   private mapCategoryToShared(cat: {
@@ -136,14 +139,68 @@ export class ArticleService {
     return { success: true, data: ArticleDTOSchema.parse(dto) };
   }
 
-  async create(dto: CreateDto) {
-    const authorId =
-      process.env.DEFAULT_AUTHOR_ID ??
-      (await this.prisma.user.findFirst({ select: { id: true } }))?.id;
+  private async getTestAuthorId() {
+    if (this.testAuthorId) return this.testAuthorId;
 
-    if (!authorId) {
-      throw new InternalServerErrorException("No authorId available (set DEFAULT_AUTHOR_ID or create a user)");
-    }
+    const user = await this.prisma.user.upsert({
+      where: { username: "test-author" },
+      create: {
+        username: "test-author",
+        firstname: "Test",
+        lastname: "Author",
+      },
+      update: {},
+      select: { id: true },
+    });
+
+    this.testAuthorId = user.id;
+    return user.id;
+  }
+
+  private async getTestCategoryId() {
+    if (this.testCategoryId) return this.testCategoryId;
+
+    const category = await this.prisma.category.upsert({
+      where: { name: "Test Category" },
+      create: {
+        name: "Test Category",
+        emoji: "🧪",
+        colors: {
+          lightColor: "#f5f5f5",
+          darkColor: "#1f1f1f",
+          accentColor: "#ff6a00",
+        },
+      },
+      update: {},
+      select: { id: true },
+    });
+
+    this.testCategoryId = category.id;
+    return category.id;
+  }
+
+  private async resolveCategoryIds(dto: CreateDto) {
+    const ids = [dto.mainCategory, ...dto.categoryIds];
+    const existing = await this.prisma.category.findMany({
+      where: { id: { in: ids } },
+      select: { id: true },
+    });
+    const existingIds = new Set(existing.map((c) => c.id));
+
+    const fallbackId = await this.getTestCategoryId();
+    const mainCategoryId = existingIds.has(dto.mainCategory)
+      ? dto.mainCategory
+      : fallbackId;
+
+    const categoryIds = dto.categoryIds.filter((id) => existingIds.has(id));
+    if (categoryIds.length === 0) categoryIds.push(fallbackId);
+
+    return { mainCategoryId, categoryIds };
+  }
+
+  async create(dto: CreateDto) {
+    const authorId = await this.getTestAuthorId();
+    const { mainCategoryId, categoryIds } = await this.resolveCategoryIds(dto);
 
     const status = dto.status;
     const publishedAt = status === "published" ? new Date() : null;
@@ -156,8 +213,8 @@ export class ArticleService {
         status,
         publishedAt,
         authorId,
-        mainCategoryId: dto.mainCategory,
-        categories: { connect: dto.categoryIds.map((id) => ({ id })) },
+        mainCategoryId,
+        categories: { connect: categoryIds.map((id) => ({ id })) },
       },
       select: { id: true },
     });

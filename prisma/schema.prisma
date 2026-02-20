@@ -8,55 +8,46 @@ datasource db {
 }
 
 model User {
-  id        String   @id @default(uuid())
-  username  String   @unique
+  id        String    @id @default(uuid())
+  username  String    @unique
+  avatar    String    @default("")
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
   firstname String
   lastname  String
-  avatar    String   @default("")
-  
   articles  Article[]
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  
+
   @@map("users")
 }
 
 model Category {
-  id          String   @id @default(uuid())
-  name        String   @unique
-  emoji       String
-  
-  colors      Json
-  
-  articles    Article[] @relation("ArticleCategories")
+  id           String    @id @default(uuid())
+  name         String    @unique
+  emoji        String
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  colors       Json
   mainArticles Article[] @relation("MainCategory")
-  
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  
+  articles     Article[] @relation("ArticleCategories")
+
   @@map("categories")
 }
 
 model Article {
-  id            String   @id @default(uuid())
-  title         String
-  description   String?
-  content       Json     // Храним Content как JSON
-  
-  authorId      String
-  author        User     @relation(fields: [authorId], references: [id])
-  
+  id             String        @id @default(uuid())
+  content        Json
+  title          String
+  description    String?
+  status         ArticleStatus @default(draft)
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  authorId       String
   mainCategoryId String
-  mainCategory  Category @relation("MainCategory", fields: [mainCategoryId], references: [id])
-  
-  categories    Category[] @relation("ArticleCategories")
-  
-  status        ArticleStatus @default(draft)
-  
-  publishedAt   DateTime?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-  
+  publishedAt    DateTime?
+  author         User          @relation(fields: [authorId], references: [id])
+  mainCategory   Category      @relation("MainCategory", fields: [mainCategoryId], references: [id])
+  categories     Category[]    @relation("ArticleCategories")
+
   @@map("articles")
 }
 
