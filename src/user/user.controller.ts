@@ -1,12 +1,11 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post } from "@nestjs/common";
-import { ApiBody, ApiCreatedResponse, ApiOkResponse, ApiParam, ApiTags } from "@nestjs/swagger";
+import { Body, Controller, Get, Param, Patch } from "@nestjs/common";
+import { ApiBody, ApiOkResponse, ApiParam, ApiTags } from "@nestjs/swagger";
 import { z } from "zod";
 import { ZodValidationPipe } from "../common/pipes/zod-validation.pipe";
-import { CreateUserSchema, UpdateUserSchema } from "./user.schemas";
+import { UpdateUserSchema } from "./user.schemas";
 import { UserService } from "./user.service";
-import { CreateUserDto, DeleteResponse, UpdateUserDto, UserListResponse, UserResponse } from "./user.swagger";
+import { UpdateUserDto, UserListResponse, UserResponse } from "./user.swagger";
 
-type CreateDto = z.infer<typeof CreateUserSchema>;
 type UpdateDto = z.infer<typeof UpdateUserSchema>;
 
 type ZodSchemaLike = { parse: (value: unknown) => unknown };
@@ -30,25 +29,11 @@ export class UserController {
     return this.userService.getById(id);
   }
 
-  @Post()
-  @ApiBody({ type: CreateUserDto })
-  @ApiCreatedResponse({ type: UserResponse })
-  create(@Body(new ZodValidationPipe(asZodType(CreateUserSchema))) dto: CreateDto) {
-    return this.userService.create(dto);
-  }
-
   @Patch(":id")
   @ApiParam({ name: "id", type: String })
   @ApiBody({ type: UpdateUserDto })
   @ApiOkResponse({ type: UserResponse })
   update(@Param("id") id: string, @Body(new ZodValidationPipe(asZodType(UpdateUserSchema))) dto: UpdateDto) {
     return this.userService.update(id, dto);
-  }
-
-  @Delete(":id")
-  @ApiParam({ name: "id", type: String })
-  @ApiOkResponse({ type: DeleteResponse })
-  remove(@Param("id") id: string) {
-    return this.userService.remove(id);
   }
 }
