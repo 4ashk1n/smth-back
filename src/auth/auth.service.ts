@@ -1,12 +1,16 @@
-
-import { Injectable } from '@nestjs/common';
+import { createHash, randomUUID } from 'node:crypto';
+import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { JwtService } from '@nestjs/jwt';
+import type { User } from '@prisma/client';
 import type { Profile } from 'passport-google-oauth20';
 import { PrismaService } from '../prisma/prisma.service';
+import type { AccessTokenPayload, RefreshTokenPayload } from './jwt-payload.type';
 
 @Injectable()
 export class AuthService {
     constructor(
         private prisma: PrismaService,
+        private jwtService: JwtService,
     ) { }
 
     async validateGoogleUser(profile: Profile) {
@@ -55,6 +59,120 @@ export class AuthService {
         });
     }
 
+    async issueTokens(user: Pick<User, 'id' | 'email'>) {
+        const accessTokenPayload: AccessTokenPayload = {
+            sub: user.id,
+            email: user.email ?? null,
+        };
+
+        const refreshTokenPayload: RefreshTokenPayload = {
+            ...accessTokenPayload,
+            type: 'refresh',
+            jti: randomUUID(),
+        };
+
+        const [accessToken, refreshToken] = await Promise.all([
+            this.jwtService.signAsync(accessTokenPayload, {
+                secret: this.getJwtSecret(),
+                expiresIn: this.getAccessTokenTtlSeconds(),
+            }),
+            this.jwtService.signAsync(refreshTokenPayload, {
+                secret: this.getJwtSecret(),
+                expiresIn: this.getRefreshTokenTtlSeconds(),
+            }),
+        ]);
+
+        await this.setRefreshToken(user.id, refreshToken);
+
+        return { accessToken, refreshToken };
+    }
+
+    async refreshTokens(refreshToken: string) {
+        let payload: RefreshTokenPayload;
+        try {
+            payload = await this.jwtService.verifyAsync<RefreshTokenPayload>(refreshToken, {
+                secret: this.getJwtSecret(),
+            });
+        } catch {
+            throw new UnauthorizedException('Invalid refresh token');
+        }
+
+        if (payload.type !== 'refresh') {
+            throw new UnauthorizedException('Invalid refresh token');
+        }
+
+        const user = await this.prisma.user.findUnique({
+            where: { id: payload.sub },
+            select: {
+                id: true,
+                email: true,
+                username: true,
+                firstname: true,
+                lastname: true,
+                avatar: true,
+                provider: true,
+                refreshTokenHash: true,
+            },
+        });
+        if (!user?.refreshTokenHash) {
+            throw new UnauthorizedException('Refresh token not found');
+        }
+
+        const refreshTokenHash = this.hashToken(refreshToken);
+        if (refreshTokenHash !== user.refreshTokenHash) {
+            throw new UnauthorizedException('Invalid refresh token');
+        }
+
+        const tokens = await this.issueTokens({ id: user.id, email: user.email });
+        return {
+            user: {
+                id: user.id,
+                email: user.email,
+                username: user.username,
+                firstname: user.firstname,
+                lastname: user.lastname,
+                avatar: user.avatar,
+                provider: user.provider,
+            },
+            tokens,
+        };
+    }
+
+    async clearRefreshTokenByUserId(userId: string) {
+        await this.prisma.user.update({
+            where: { id: userId },
+            data: { refreshTokenHash: null },
+        });
+    }
+
+    async clearRefreshTokenByToken(refreshToken: string) {
+        try {
+            const payload = await this.jwtService.verifyAsync<RefreshTokenPayload>(refreshToken, {
+                secret: this.getJwtSecret(),
+            });
+            if (payload.type === 'refresh') {
+                await this.clearRefreshTokenByUserId(payload.sub);
+            }
+        } catch {
+            return;
+        }
+    }
+
+    async findUserById(userId: string) {
+        return this.prisma.user.findUnique({
+            where: { id: userId },
+            select: {
+                id: true,
+                email: true,
+                username: true,
+                firstname: true,
+                lastname: true,
+                avatar: true,
+                provider: true,
+            },
+        });
+    }
+
     private extractName(profile: Profile) {
         const given = profile.name?.givenName?.trim() ?? '';
         const family = profile.name?.familyName?.trim() ?? '';
@@ -84,5 +202,41 @@ export class AuthService {
             }
         }
         return candidate;
+    }
+
+    private async setRefreshToken(userId: string, refreshToken: string) {
+        const refreshTokenHash = this.hashToken(refreshToken);
+        await this.prisma.user.update({
+            where: { id: userId },
+            data: { refreshTokenHash },
+        });
+    }
+
+    private hashToken(token: string) {
+        const pepper = process.env.AUTH_REFRESH_TOKEN_PEPPER ?? '';
+        return createHash('sha256').update(`${token}${pepper}`).digest('hex');
+    }
+
+    private getJwtSecret() {
+        const jwtSecret = process.env.AUTH_JWT_SECRET;
+        if (!jwtSecret) {
+            throw new Error('AUTH_JWT_SECRET is not set');
+        }
+        return jwtSecret;
+    }
+
+    getAccessTokenTtlSeconds() {
+        return this.parseTtlSeconds(process.env.AUTH_ACCESS_TOKEN_TTL_SEC, 900);
+    }
+
+    getRefreshTokenTtlSeconds() {
+        return this.parseTtlSeconds(process.env.AUTH_REFRESH_TOKEN_TTL_SEC, 2592000);
+    }
+
+    private parseTtlSeconds(value: string | undefined, fallback: number) {
+        if (!value) return fallback;
+        const parsed = Number.parseInt(value, 10);
+        if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+        return parsed;
     }
 }

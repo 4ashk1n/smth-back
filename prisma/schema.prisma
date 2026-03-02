@@ -12,6 +12,7 @@ model User {
   username  String    @unique
   email     String?   @unique
   googleId  String?   @unique
+  refreshTokenHash String?
   provider  String?   @default("local")
   avatar    String    @default("")
   createdAt DateTime  @default(now())
