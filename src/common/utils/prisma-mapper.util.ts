@@ -1,8 +1,5 @@
 import { Prisma } from '@prisma/client';
-import type { Article, Category } from '@smth/shared';
 
-
-// Используем Prisma payload types
 type PrismaCategory = Prisma.CategoryGetPayload<object>;
 
 type PrismaArticleWithRelations = Prisma.ArticleGetPayload<{
@@ -12,49 +9,50 @@ type PrismaArticleWithRelations = Prisma.ArticleGetPayload<{
   };
 }>;
 
-
 export class PrismaMapper {
-  // Category: Prisma → Shared
-  static toCategoryDTO(prismaCategory: PrismaCategory): Category {
+  static toCategoryDTO(prismaCategory: PrismaCategory) {
     return {
       id: prismaCategory.id,
       name: prismaCategory.name,
       emoji: prismaCategory.emoji,
       colors: {
-        lightColor: (prismaCategory.colors as { lightColor: string, darkColor: string, accentColor: string } | undefined)?.lightColor || "#ffffff",
-        darkColor: (prismaCategory.colors as { lightColor: string, darkColor: string, accentColor: string } | undefined)?.darkColor || "#000000",
-        accentColor: (prismaCategory.colors as { lightColor: string, darkColor: string, accentColor: string } | undefined)?.accentColor || "#cccccc",
+        lightColor: (prismaCategory.colors as { lightColor?: string } | undefined)?.lightColor || '#ffffff',
+        darkColor: (prismaCategory.colors as { darkColor?: string } | undefined)?.darkColor || '#000000',
+        accentColor: (prismaCategory.colors as { accentColor?: string } | undefined)?.accentColor || '#cccccc',
       },
+      createdAt: (prismaCategory as any).createdAt,
+      updatedAt: (prismaCategory as any).updatedAt,
     };
   }
 
-  // Article: Prisma → Shared (full)
-  static toArticleDTO(prismaArticle: PrismaArticleWithRelations): Article {
+  static toArticleDTO(prismaArticle: PrismaArticleWithRelations) {
     return {
       id: prismaArticle.id,
       title: prismaArticle.title,
-      description: prismaArticle.description || '',
-      mainCategory: prismaArticle.mainCategoryId,
-      categories: prismaArticle.categories.map(cat => this.toCategoryDTO(cat).id),
-      status: prismaArticle.status.toLowerCase() as 'published' | 'draft' | 'archived' | 'review',
+      description: prismaArticle.description,
       content: prismaArticle.content as any,
+      authorId: prismaArticle.authorId,
+      mainCategoryId: prismaArticle.mainCategoryId,
+      status: prismaArticle.status,
+      publishedAt: prismaArticle.publishedAt,
+      createdAt: prismaArticle.createdAt,
+      updatedAt: prismaArticle.updatedAt,
+      categories: prismaArticle.categories.map((cat) => cat.id),
     };
   }
 
-  // Article: Prisma → Shared (meta only)
   static toArticleMeta(prismaArticle: PrismaArticleWithRelations) {
     return {
       id: prismaArticle.id,
       title: prismaArticle.title,
-      description: prismaArticle.description || '',
-      mainCategory: prismaArticle.mainCategoryId,
-      categories: prismaArticle.categories.map(cat => cat.id),
-      status: prismaArticle.status.toLowerCase() as 'published' | 'draft' | 'archived' | 'review',
+      description: prismaArticle.description,
+      mainCategoryId: prismaArticle.mainCategoryId,
+      categories: prismaArticle.categories.map((cat) => cat.id),
+      status: prismaArticle.status,
     };
   }
 
-  // Status: Shared → Prisma (просто uppercase строка)
-  static toPrismaStatus(status: string): 'PUBLISHED' | 'DRAFT' | 'ARCHIVED' | 'REVIEW' {
-    return status.toUpperCase() as 'PUBLISHED' | 'DRAFT' | 'ARCHIVED' | 'REVIEW';
+  static toPrismaStatus(status: string): 'published' | 'draft' | 'archived' | 'review' {
+    return status.toLowerCase() as 'published' | 'draft' | 'archived' | 'review';
   }
 }

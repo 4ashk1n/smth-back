@@ -40,7 +40,7 @@ export class CategoryService {
       data: {
         name: dto.name,
         emoji: dto.emoji,
-        colors: dto.colors,
+        colors: dto.colors as any,
       },
       select: { id: true, name: true, emoji: true, colors: true, createdAt: true, updatedAt: true },
     });
@@ -56,7 +56,7 @@ export class CategoryService {
     });
     if (!existing) throw new NotFoundException("Category not found");
 
-    const data: Partial<CreateDto> = {};
+    const data: any = {};
     if (dto.name !== undefined) data.name = dto.name;
     if (dto.emoji !== undefined) data.emoji = dto.emoji;
     if (dto.colors !== undefined) data.colors = dto.colors;
