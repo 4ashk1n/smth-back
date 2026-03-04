@@ -1,8 +1,34 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
-import { ArticleMetaSchema } from "@smth/shared";
+import {
+  ArticleMetaSchema,
+  SubscribeUserResponseSchema,
+  UnsubscribeUserResponseSchema,
+  UpdateUserResponseSchema,
+  UserFollowersResponseSchema,
+  UserFollowingResponseSchema,
+  UserLikedArticlesResponseSchema,
+  UserListResponseSchema,
+  UserOtherArticlesResponseSchema,
+  UserPublishedArticlesResponseSchema,
+  UserRepostedArticlesResponseSchema,
+  UserResponseSchema,
+  UserSavedArticlesResponseSchema,
+  type SubscribeUserResponse,
+  type UnsubscribeUserResponse,
+  type UpdateUserResponse,
+  type UserFollowersResponse,
+  type UserFollowingResponse,
+  type UserLikedArticlesResponse,
+  type UserListResponse,
+  type UserOtherArticlesResponse,
+  type UserPublishedArticlesResponse,
+  type UserRepostedArticlesResponse,
+  type UserResponse,
+  type UserSavedArticlesResponse,
+} from "@smth/shared";
 import type { z } from "zod";
 import { PrismaService } from "../prisma/prisma.service";
-import { UpdateUserSchema, UserDtoSchema, type UserDto } from "./user.schemas";
+import { UpdateUserSchema } from "./user.schemas";
 
 type UpdateDto = z.infer<typeof UpdateUserSchema>;
 
@@ -10,46 +36,52 @@ type UpdateDto = z.infer<typeof UpdateUserSchema>;
 export class UserService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async list() {
+  async list(): Promise<UserListResponse> {
     const rows = await this.prisma.user.findMany({
-      select: { id: true, username: true, firstname: true, lastname: true, avatar: true, email: true, provider: true },
+      select: {
+        id: true,
+        username: true,
+        firstname: true,
+        lastname: true,
+        avatar: true,
+        role: true,
+        email: true,
+        googleId: true,
+        refreshTokenHash: true,
+        provider: true,
+        createdAt: true,
+        updatedAt: true,
+      },
       orderBy: { createdAt: "desc" },
     });
 
-    const items: UserDto[] = rows.map((row) => ({
-      id: row.id,
-      username: row.username,
-      firstname: row.firstname,
-      lastname: row.lastname,
-      avatar: row.avatar,
-      email: row.email,
-      provider: row.provider,
-    }));
-
-    return { success: true, data: UserDtoSchema.array().parse(items) };
+    return UserListResponseSchema.parse({ success: true, data: rows });
   }
 
-  async getById(id: string) {
+  async getById(id: string): Promise<UserResponse> {
     const row = await this.prisma.user.findUnique({
       where: { id },
-      select: { id: true, username: true, firstname: true, lastname: true, avatar: true, email: true, provider: true },
+      select: {
+        id: true,
+        username: true,
+        firstname: true,
+        lastname: true,
+        avatar: true,
+        role: true,
+        email: true,
+        googleId: true,
+        refreshTokenHash: true,
+        provider: true,
+        createdAt: true,
+        updatedAt: true,
+      },
     });
     if (!row) throw new NotFoundException("User not found");
 
-    const dto: UserDto = {
-      id: row.id,
-      username: row.username,
-      firstname: row.firstname,
-      lastname: row.lastname,
-      avatar: row.avatar,
-      email: row.email,
-      provider: row.provider,
-    };
-
-    return { success: true, data: UserDtoSchema.parse(dto) };
+    return UserResponseSchema.parse({ success: true, data: row });
   }
 
-  async update(id: string, dto: UpdateDto) {
+  async update(id: string, dto: UpdateDto): Promise<UpdateUserResponse> {
     const existing = await this.prisma.user.findUnique({
       where: { id },
       select: { id: true },
@@ -64,23 +96,26 @@ export class UserService {
     const updated = await this.prisma.user.update({
       where: { id },
       data,
-      select: { id: true, username: true, firstname: true, lastname: true, avatar: true, email: true, provider: true },
+      select: {
+        id: true,
+        username: true,
+        firstname: true,
+        lastname: true,
+        avatar: true,
+        role: true,
+        email: true,
+        googleId: true,
+        refreshTokenHash: true,
+        provider: true,
+        createdAt: true,
+        updatedAt: true,
+      },
     });
 
-    const result: UserDto = {
-      id: updated.id,
-      username: updated.username,
-      firstname: updated.firstname,
-      lastname: updated.lastname,
-      avatar: updated.avatar,
-      email: updated.email,
-      provider: updated.provider,
-    };
-
-    return { success: true, data: UserDtoSchema.parse(result) };
+    return UpdateUserResponseSchema.parse({ success: true, data: updated });
   }
 
-  async subscribe(currentUserId: string, targetUserId: string) {
+  async subscribe(currentUserId: string, targetUserId: string): Promise<SubscribeUserResponse> {
     if (currentUserId === targetUserId) {
       throw new BadRequestException("You cannot subscribe to yourself");
     }
@@ -116,10 +151,10 @@ export class UserService {
       },
     });
 
-    return { success: true, data: row };
+    return SubscribeUserResponseSchema.parse({ success: true, data: row });
   }
 
-  async unsubscribe(currentUserId: string, targetUserId: string) {
+  async unsubscribe(currentUserId: string, targetUserId: string): Promise<UnsubscribeUserResponse> {
     const existing = await this.prisma.userSubscription.findUnique({
       where: {
         followerId_followingId: {
@@ -145,17 +180,17 @@ export class UserService {
       },
     });
 
-    return { success: true, data: existing };
+    return UnsubscribeUserResponseSchema.parse({ success: true, data: existing });
   }
 
-  async getPublishedArticles(userId: string) {
+  async getPublishedArticles(userId: string): Promise<UserPublishedArticlesResponse> {
     return this.getArticleMetaList({
       authorId: userId,
       status: "published",
     });
   }
 
-  async getOtherArticles(currentUserId: string, userId: string) {
+  async getOtherArticles(currentUserId: string, userId: string): Promise<UserOtherArticlesResponse> {
     this.ensureSelf(currentUserId, userId);
     return this.getArticleMetaList({
       authorId: userId,
@@ -163,21 +198,21 @@ export class UserService {
     });
   }
 
-  async getLikedArticles(currentUserId: string, userId: string) {
+  async getLikedArticles(currentUserId: string, userId: string): Promise<UserLikedArticlesResponse> {
     this.ensureSelf(currentUserId, userId);
     return this.getMetricArticles(userId, { liked: true });
   }
 
-  async getSavedArticles(currentUserId: string, userId: string) {
+  async getSavedArticles(currentUserId: string, userId: string): Promise<UserSavedArticlesResponse> {
     this.ensureSelf(currentUserId, userId);
     return this.getMetricArticles(userId, { saved: true });
   }
 
-  async getRepostedArticles(userId: string) {
+  async getRepostedArticles(userId: string): Promise<UserRepostedArticlesResponse> {
     return this.getMetricArticles(userId, { reposted: true }, true);
   }
 
-  async getFollowing(userId: string) {
+  async getFollowing(userId: string): Promise<UserFollowingResponse> {
     const rows = await this.prisma.userSubscription.findMany({
       where: { followerId: userId },
       orderBy: { createdAt: "desc" },
@@ -195,16 +230,16 @@ export class UserService {
       },
     });
 
-    return {
+    return UserFollowingResponseSchema.parse({
       success: true,
       data: rows.map((row) => ({
         user: row.following,
         subscribedAt: row.createdAt,
       })),
-    };
+    });
   }
 
-  async getFollowers(userId: string) {
+  async getFollowers(userId: string): Promise<UserFollowersResponse> {
     const rows = await this.prisma.userSubscription.findMany({
       where: { followingId: userId },
       orderBy: { createdAt: "desc" },
@@ -222,13 +257,13 @@ export class UserService {
       },
     });
 
-    return {
+    return UserFollowersResponseSchema.parse({
       success: true,
       data: rows.map((row) => ({
         user: row.follower,
         subscribedAt: row.createdAt,
       })),
-    };
+    });
   }
 
   private async getMetricArticles(
@@ -274,7 +309,11 @@ export class UserService {
       updatedAt: row.article.updatedAt,
     }));
 
-    return { success: true, data: ArticleMetaSchema.array().parse(items) };
+    return onlyPublished
+      ? UserRepostedArticlesResponseSchema.parse({ success: true, data: ArticleMetaSchema.array().parse(items) })
+      : filter.liked
+        ? UserLikedArticlesResponseSchema.parse({ success: true, data: ArticleMetaSchema.array().parse(items) })
+        : UserSavedArticlesResponseSchema.parse({ success: true, data: ArticleMetaSchema.array().parse(items) });
   }
 
   private async getArticleMetaList(where: any) {
@@ -308,7 +347,11 @@ export class UserService {
       updatedAt: row.updatedAt,
     }));
 
-    return { success: true, data: ArticleMetaSchema.array().parse(items) };
+    const parsed = ArticleMetaSchema.array().parse(items);
+    if (where?.status === "published") {
+      return UserPublishedArticlesResponseSchema.parse({ success: true, data: parsed });
+    }
+    return UserOtherArticlesResponseSchema.parse({ success: true, data: parsed });
   }
 
   private ensureSelf(currentUserId: string, targetUserId: string) {

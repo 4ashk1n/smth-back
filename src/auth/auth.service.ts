@@ -105,13 +105,17 @@ export class AuthService {
             where: { id: payload.sub },
             select: {
                 id: true,
+                role: true,
                 email: true,
+                googleId: true,
                 username: true,
                 firstname: true,
                 lastname: true,
                 avatar: true,
                 provider: true,
                 refreshTokenHash: true,
+                createdAt: true,
+                updatedAt: true,
             },
         });
         if (!user?.refreshTokenHash) {
@@ -127,12 +131,17 @@ export class AuthService {
         return {
             user: {
                 id: user.id,
+                role: user.role,
                 email: user.email,
+                googleId: user.googleId,
                 username: user.username,
                 firstname: user.firstname,
                 lastname: user.lastname,
                 avatar: user.avatar,
                 provider: user.provider,
+                refreshTokenHash: user.refreshTokenHash,
+                createdAt: user.createdAt,
+                updatedAt: user.updatedAt,
             },
             tokens,
         };
@@ -163,12 +172,17 @@ export class AuthService {
             where: { id: userId },
             select: {
                 id: true,
+                role: true,
                 email: true,
+                googleId: true,
                 username: true,
                 firstname: true,
                 lastname: true,
                 avatar: true,
+                refreshTokenHash: true,
                 provider: true,
+                createdAt: true,
+                updatedAt: true,
             },
         });
     }

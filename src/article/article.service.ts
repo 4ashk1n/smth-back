@@ -1,9 +1,19 @@
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import {
+  ArticleListResponseSchema,
+  ArticleResponseSchema,
+  CreateArticleResponseSchema,
+  DislikeArticleResponseSchema,
   ArticleDTOSchema,
   ArticleListQuerySchema,
   ArticleMetaSchema,
+  type ArticleListResponse,
+  type ArticleResponse,
+  type CreateArticleResponse,
   CreateArticleSchema,
+  LikeArticleResponseSchema,
+  UpdateArticleResponseSchema,
+  type UpdateArticleResponse,
   UpdateArticleSchema,
 } from "@smth/shared";
 import type { z } from "zod";
@@ -20,7 +30,7 @@ export class ArticleService {
 
   constructor(private readonly prisma: PrismaService) {}
 
-  async list(query: ListQuery) {
+  async list(query: ListQuery): Promise<ArticleListResponse> {
     const { page, limit, status, mainCategoryId, authorId, search } = query;
 
     const where: any = {};
@@ -79,7 +89,7 @@ export class ArticleService {
 
     const parsed = ArticleMetaSchema.array().parse(items);
 
-    return {
+    return ArticleListResponseSchema.parse({
       success: true,
       data: {
         items: parsed,
@@ -88,10 +98,10 @@ export class ArticleService {
         limit,
         hasMore: skip + parsed.length < total,
       },
-    };
+    });
   }
 
-  async getById(id: string) {
+  async getById(id: string): Promise<ArticleResponse> {
     const row = await this.prisma.article.findUnique({
       where: { id },
       select: {
@@ -125,7 +135,7 @@ export class ArticleService {
       categories: row.categories.map((c) => c.id),
     };
 
-    return { success: true, data: ArticleDTOSchema.parse(dto) };
+    return ArticleResponseSchema.parse({ success: true, data: ArticleDTOSchema.parse(dto) });
   }
 
   private async getTestAuthorId() {
@@ -186,7 +196,7 @@ export class ArticleService {
     return { mainCategoryId, categoryIds };
   }
 
-  async create(dto: CreateDto) {
+  async create(dto: CreateDto): Promise<CreateArticleResponse> {
     const authorId = dto.authorId ?? (await this.getTestAuthorId());
     const { mainCategoryId, categoryIds } = await this.resolveCategoryIds(dto);
 
@@ -205,18 +215,33 @@ export class ArticleService {
           mainCategoryId,
           categories: { connect: categoryIds.map((id) => ({ id })) },
         },
-        select: { id: true },
+        select: {
+          id: true,
+          title: true,
+          description: true,
+          content: true,
+          authorId: true,
+          mainCategoryId: true,
+          status: true,
+          publishedAt: true,
+          createdAt: true,
+          updatedAt: true,
+          categories: { select: { id: true } },
+        },
       });
 
       await this.persistStructuredContent(tx, article.id, dto.content);
 
-      return article;
+      return {
+        ...article,
+        categories: article.categories.map((c) => c.id),
+      };
     });
 
-    return { success: true, data: created };
+    return CreateArticleResponseSchema.parse({ success: true, data: created });
   }
 
-  async update(id: string, dto: UpdateDto) {
+  async update(id: string, dto: UpdateDto): Promise<UpdateArticleResponse> {
     const current = await this.prisma.article.findUnique({
       where: { id },
       select: { status: true, publishedAt: true },
@@ -242,10 +267,28 @@ export class ArticleService {
     const updated = await this.prisma.article.update({
       where: { id },
       data,
-      select: { id: true },
+      select: {
+        id: true,
+        title: true,
+        description: true,
+        content: true,
+        authorId: true,
+        mainCategoryId: true,
+        status: true,
+        publishedAt: true,
+        createdAt: true,
+        updatedAt: true,
+        categories: { select: { id: true } },
+      },
     });
 
-    return { success: true, data: updated };
+    return UpdateArticleResponseSchema.parse({
+      success: true,
+      data: {
+        ...updated,
+        categories: updated.categories.map((c) => c.id),
+      },
+    });
   }
 
   async likeArticle(articleId: string, userId: string) {
@@ -297,7 +340,10 @@ export class ArticleService {
       },
     });
 
-    return { success: true, data: metric };
+    const payload = { success: true, data: metric };
+    return reaction === "like"
+      ? LikeArticleResponseSchema.parse(payload)
+      : DislikeArticleResponseSchema.parse(payload);
   }
 
   private async persistStructuredContent(tx: any, articleId: string, content: unknown) {

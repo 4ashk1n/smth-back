@@ -1,5 +1,6 @@
 import { Controller, Get, Post, Request, Response, UnauthorizedException, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
+import { AuthLogoutResponseSchema, AuthMeResponseSchema, AuthRefreshResponseSchema } from '@smth/shared';
 import type { Request as ExpressRequest, Response as ExpressResponse } from 'express';
 import { AuthService } from './auth.service';
 import { ACCESS_TOKEN_COOKIE, getAuthCookieOptions, REFRESH_TOKEN_COOKIE } from './auth.constants';
@@ -8,11 +9,16 @@ type RequestWithUser = ExpressRequest & {
   user?: {
     id: string;
     email: string | null;
+    role: "user" | "moderator" | "admin";
+    googleId: string | null;
     username: string;
     firstname: string;
     lastname: string;
     avatar: string;
+    refreshTokenHash: string | null;
     provider: string | null;
+    createdAt: Date;
+    updatedAt: Date;
   };
 };
 
@@ -46,13 +52,16 @@ export class AuthController {
     if (redirect) {
       return res.redirect(redirect);
     }
-    return res.json(req.user);
+    return res.json(AuthMeResponseSchema.parse({ success: true, data: req.user }));
   }
 
   @Get('me')
   @UseGuards(AuthGuard('jwt'))
   async me(@Request() req: RequestWithUser) {
-    return req.user;
+    if (!req.user) {
+      throw new UnauthorizedException('User not found');
+    }
+    return AuthMeResponseSchema.parse({ success: true, data: req.user });
   }
 
   @Post('refresh')
@@ -64,7 +73,7 @@ export class AuthController {
 
     const { user, tokens } = await this.authService.refreshTokens(refreshToken);
     this.setAuthCookies(res, tokens.accessToken, tokens.refreshToken);
-    return res.json(user);
+    return res.json(AuthRefreshResponseSchema.parse({ success: true, data: user }));
   }
 
   @Post('logout')
@@ -75,7 +84,7 @@ export class AuthController {
     }
 
     this.clearAuthCookies(res);
-    return res.json({ success: true });
+    return res.json(AuthLogoutResponseSchema.parse({ success: true, data: { success: true } }));
   }
 
   private setAuthCookies(res: ExpressResponse, accessToken: string, refreshToken: string) {
