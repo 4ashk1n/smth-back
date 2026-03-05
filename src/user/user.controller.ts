@@ -7,19 +7,19 @@ import {
   ApiTags,
 } from "@nestjs/swagger";
 import {
+  IsSubscribedResponse,
   type SubscribeUserResponse,
   type UnsubscribeUserResponse,
   type UpdateUserResponse,
   UpdateUserSchema,
-  type UserFollowersResponse,
-  type UserFollowingResponse,
   type UserLikedArticlesResponse,
   type UserListResponse,
+  UserMetricsResponse,
   type UserOtherArticlesResponse,
   type UserPublishedArticlesResponse,
   type UserRepostedArticlesResponse,
   type UserResponse,
-  type UserSavedArticlesResponse,
+  type UserSavedArticlesResponse
 } from "@smth/shared";
 import type { Request as ExpressRequest } from "express";
 import { z } from "zod";
@@ -129,17 +129,34 @@ export class UserController {
     return this.userService.getRepostedArticles(id);
   }
 
-  @Get(":id/following")
+  // @Get(":id/following")
+  // @ApiParam({ name: "id", type: String })
+  // @ApiOkResponse({ description: "UserFollowingResponse from @smth/shared" })
+  // getFollowing(@Param("id") id: string): Promise<UserFollowingResponse> {
+  //   return this.userService.getFollowing(id);
+  // }
+
+  // @Get(":id/followers")
+  // @ApiParam({ name: "id", type: String })
+  // @ApiOkResponse({ description: "UserFollowersResponse from @smth/shared" })
+  // getFollowers(@Param("id") id: string): Promise<UserFollowersResponse> {
+  //   return this.userService.getFollowers(id);
+  // }
+
+  @Get(":id/metrics")
   @ApiParam({ name: "id", type: String })
-  @ApiOkResponse({ description: "UserFollowingResponse from @smth/shared" })
-  getFollowing(@Param("id") id: string): Promise<UserFollowingResponse> {
-    return this.userService.getFollowing(id);
+  @ApiOkResponse({ description: "UserMetricsResponse from @smth/shared" })
+  getMetrics(@Param("id") id: string): Promise<UserMetricsResponse> {
+    return this.userService.getMetrics(id);
   }
 
-  @Get(":id/followers")
+  @Get(":id/subscribed")
+  @UseGuards(AuthGuard("jwt"))
   @ApiParam({ name: "id", type: String })
-  @ApiOkResponse({ description: "UserFollowersResponse from @smth/shared" })
-  getFollowers(@Param("id") id: string): Promise<UserFollowersResponse> {
-    return this.userService.getFollowers(id);
+  @ApiOkResponse({ description: "IsSubscribedResponse from @smth/shared" })
+  isSubscribed(@Param("id") id: string, @Request() req: RequestWithUser): Promise<IsSubscribedResponse> {
+    const currentUserId = req.user?.id;
+    if (!currentUserId) throw new UnauthorizedException("Unauthorized");
+    return this.userService.isSubscribed(currentUserId, id);
   }
 }

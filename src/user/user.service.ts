@@ -1,13 +1,18 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
 import {
   ArticleMetaSchema,
+  IsSubscribedResponse,
+  isSubscribedResponseSchema,
   SubscribeUserResponseSchema,
   UnsubscribeUserResponseSchema,
   UpdateUserResponseSchema,
+  UpdateUserSchema,
   UserFollowersResponseSchema,
   UserFollowingResponseSchema,
   UserLikedArticlesResponseSchema,
   UserListResponseSchema,
+  UserMetricsResponse,
+  UserMetricsResponseSchema,
   UserOtherArticlesResponseSchema,
   UserPublishedArticlesResponseSchema,
   UserRepostedArticlesResponseSchema,
@@ -25,7 +30,6 @@ import {
   type UserRepostedArticlesResponse,
   type UserResponse,
   type UserSavedArticlesResponse,
-  UpdateUserSchema,
 } from "@smth/shared";
 import type { z } from "zod";
 import { PrismaService } from "../prisma/prisma.service";
@@ -181,6 +185,64 @@ export class UserService {
     });
 
     return UnsubscribeUserResponseSchema.parse({ success: true, data: existing });
+  }
+
+  async isSubscribed(currentUserId: string, targetUserId: string): Promise<IsSubscribedResponse> {
+    if (currentUserId === targetUserId) {
+      return isSubscribedResponseSchema.parse({ success: true, data: {
+        subscribed: false,
+        followingId: targetUserId,
+        followerId: currentUserId,
+      } });
+    }
+    const existing = await this.prisma.userSubscription.findUnique({
+      where: {
+        followerId_followingId: {
+          followerId: currentUserId,
+          followingId: targetUserId,
+        },
+      },
+      select: {
+        followerId: true,
+        followingId: true,
+      },
+    });
+    return isSubscribedResponseSchema.parse({ success: true, data: {
+      subscribed: existing !== null,
+      followingId: targetUserId,
+      followerId: currentUserId,
+    } });
+  }
+
+  async getMetrics(userId: string): Promise<UserMetricsResponse> {
+    const articles = await this.prisma.article.count({
+      where: {
+        authorId: userId,
+        status: "published",
+      }
+    });
+
+    const followers = await this.prisma.userSubscription.count({
+      where: {
+        followingId: userId,
+      }
+    });
+
+    const following = await this.prisma.userSubscription.count({
+      where: {
+        followerId: userId,
+      }
+    });
+
+    return UserMetricsResponseSchema.parse({
+      success: true,
+      data: {
+        articles,
+        followers,
+        following,
+      },
+    });
+    
   }
 
   async getPublishedArticles(userId: string): Promise<UserPublishedArticlesResponse> {
