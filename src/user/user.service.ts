@@ -25,10 +25,10 @@ import {
   type UserRepostedArticlesResponse,
   type UserResponse,
   type UserSavedArticlesResponse,
+  UpdateUserSchema,
 } from "@smth/shared";
 import type { z } from "zod";
 import { PrismaService } from "../prisma/prisma.service";
-import { UpdateUserSchema } from "./user.schemas";
 
 type UpdateDto = z.infer<typeof UpdateUserSchema>;
 

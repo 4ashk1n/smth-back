@@ -1,6 +1,13 @@
 import { Controller, Get, Post, Request, Response, UnauthorizedException, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
-import { AuthLogoutResponseSchema, AuthMeResponseSchema, AuthRefreshResponseSchema } from '@smth/shared';
+import {
+  AuthLogoutResponseSchema,
+  AuthMeResponseSchema,
+  AuthRefreshResponseSchema,
+  type AuthLogoutResponse,
+  type AuthMeResponse,
+  type AuthRefreshResponse,
+} from '@smth/shared';
 import type { Request as ExpressRequest, Response as ExpressResponse } from 'express';
 import { AuthService } from './auth.service';
 import { ACCESS_TOKEN_COOKIE, getAuthCookieOptions, REFRESH_TOKEN_COOKIE } from './auth.constants';
@@ -57,7 +64,7 @@ export class AuthController {
 
   @Get('me')
   @UseGuards(AuthGuard('jwt'))
-  async me(@Request() req: RequestWithUser) {
+  async me(@Request() req: RequestWithUser): Promise<AuthMeResponse> {
     if (!req.user) {
       throw new UnauthorizedException('User not found');
     }
@@ -65,7 +72,7 @@ export class AuthController {
   }
 
   @Post('refresh')
-  async refresh(@Request() req: ExpressRequest, @Response() res: ExpressResponse) {
+  async refresh(@Request() req: ExpressRequest, @Response() res: ExpressResponse): Promise<ExpressResponse<AuthRefreshResponse>> {
     const refreshToken = req.cookies?.[REFRESH_TOKEN_COOKIE];
     if (!refreshToken) {
       throw new UnauthorizedException('Refresh token not found');
@@ -77,7 +84,7 @@ export class AuthController {
   }
 
   @Post('logout')
-  async logout(@Request() req: ExpressRequest, @Response() res: ExpressResponse) {
+  async logout(@Request() req: ExpressRequest, @Response() res: ExpressResponse): Promise<ExpressResponse<AuthLogoutResponse>> {
     const refreshToken = req.cookies?.[REFRESH_TOKEN_COOKIE];
     if (refreshToken) {
       await this.authService.clearRefreshTokenByToken(refreshToken);
