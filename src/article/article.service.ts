@@ -6,6 +6,8 @@ import {
   ArticleListQuerySchema,
   ArticleListResponseSchema,
   ArticleMetaSchema,
+  ArticleMetricsResponse,
+  ArticleMetricsResponseSchema,
   ArticleResponseSchema,
   Content,
   CreateArticleResponseSchema,
@@ -141,6 +143,7 @@ export class ArticleService {
     return ArticleResponseSchema.parse({ success: true, data: ArticleDTOSchema.parse(dto) });
   }
 
+  // TODO: посмотреть на SQL-инъекцию
   async getContentById(id: string): Promise<ArticleContentResponse> {
     const article = await this.prisma.article.findUnique({
       where: { id },
@@ -265,6 +268,68 @@ export class ArticleService {
     return ArticleContentResponseSchema.parse({
       success: true,
       data: content,
+    });
+  }
+
+  async getMetricsById(id: string, userId: string | undefined): Promise<ArticleMetricsResponse> {
+    const { views, likes, saves, reposts, userMetric } = await this.prisma.$transaction(async (tx) => {
+      const article = await tx.article.findUnique({
+        where: { id },
+        select: { id: true },
+      });
+      if (!article) throw new NotFoundException("Article not found");
+
+      const viewsPromise = tx.userArticleMetric.count({
+        where: { articleId: id },
+      });
+      const likesPromise = tx.userArticleMetric.count({
+        where: { articleId: id, liked: true },
+      });
+      const savesPromise = tx.userArticleMetric.count({
+        where: { articleId: id, saved: true },
+      });
+      const repostsPromise = tx.userArticleMetric.count({
+        where: { articleId: id, reposted: true },
+      });
+      const userMetricPromise = userId
+        ? tx.userArticleMetric.findUnique({
+          where: {
+            userId_articleId: {
+              userId,
+              articleId: id,
+            },
+          },
+          select: {
+            liked: true,
+            saved: true,
+            reposted: true,
+          },
+        })
+        : Promise.resolve(null);
+
+      const [views, likes, saves, reposts, userMetric] = await Promise.all([
+        viewsPromise,
+        likesPromise,
+        savesPromise,
+        repostsPromise,
+        userMetricPromise,
+      ]);
+
+      return { views, likes, saves, reposts, userMetric };
+    });
+
+    return ArticleMetricsResponseSchema.parse({
+      success: true,
+      data: {
+        views,
+        likes,
+        saves,
+        reposts,
+        comments: 0,
+        liked: userMetric?.liked ?? false,
+        saved: userMetric?.saved ?? false,
+        reposted: userMetric?.reposted ?? false,
+      },
     });
   }
 
@@ -425,16 +490,40 @@ export class ArticleService {
     return this.setReaction(articleId, userId, "like");
   }
 
+  async unlikeArticle(articleId: string, userId: string) {
+    return this.clearReaction(articleId, userId, "like");
+  }
+
   async dislikeArticle(articleId: string, userId: string) {
     return this.setReaction(articleId, userId, "dislike");
   }
 
+  async undislikeArticle(articleId: string, userId: string) {
+    return this.clearReaction(articleId, userId, "dislike");
+  }
+
+  async saveArticle(articleId: string, userId: string): Promise<ArticleMetricsResponse> {
+    await this.setMetricFlag(articleId, userId, "saved", true);
+    return this.getMetricsById(articleId, userId);
+  }
+
+  async unsaveArticle(articleId: string, userId: string): Promise<ArticleMetricsResponse> {
+    await this.setMetricFlag(articleId, userId, "saved", false);
+    return this.getMetricsById(articleId, userId);
+  }
+
+  async repostArticle(articleId: string, userId: string): Promise<ArticleMetricsResponse> {
+    await this.setMetricFlag(articleId, userId, "reposted", true);
+    return this.getMetricsById(articleId, userId);
+  }
+
+  async unrepostArticle(articleId: string, userId: string): Promise<ArticleMetricsResponse> {
+    await this.setMetricFlag(articleId, userId, "reposted", false);
+    return this.getMetricsById(articleId, userId);
+  }
+
   private async setReaction(articleId: string, userId: string, reaction: "like" | "dislike") {
-    const article = await this.prisma.article.findUnique({
-      where: { id: articleId },
-      select: { id: true },
-    });
-    if (!article) throw new NotFoundException("Article not found");
+    await this.ensureArticleExists(articleId);
 
     const liked = reaction === "like";
     const disliked = reaction === "dislike";
@@ -474,6 +563,99 @@ export class ArticleService {
     return reaction === "like"
       ? LikeArticleResponseSchema.parse(payload)
       : DislikeArticleResponseSchema.parse(payload);
+  }
+
+  private async clearReaction(articleId: string, userId: string, reaction: "like" | "dislike") {
+    await this.ensureArticleExists(articleId);
+
+    await this.prisma.userArticleMetric.updateMany({
+      where: {
+        userId,
+        articleId,
+      },
+      data: {
+        liked: reaction === "like" ? false : undefined,
+        disliked: reaction === "dislike" ? false : undefined,
+        updatedAt: new Date(),
+      },
+    });
+
+    const metric = await this.prisma.userArticleMetric.findUnique({
+      where: {
+        userId_articleId: {
+          userId,
+          articleId,
+        },
+      },
+      select: {
+        liked: true,
+        disliked: true,
+      },
+    });
+
+    const payload = {
+      success: true,
+      data: {
+        articleId,
+        liked: metric?.liked ?? false,
+        disliked: metric?.disliked ?? false,
+      },
+    };
+
+    return reaction === "like"
+      ? LikeArticleResponseSchema.parse(payload)
+      : DislikeArticleResponseSchema.parse(payload);
+  }
+
+  private async setMetricFlag(articleId: string, userId: string, flag: "saved" | "reposted", value: boolean) {
+    await this.ensureArticleExists(articleId);
+
+    if (value) {
+      await this.prisma.userArticleMetric.upsert({
+        where: {
+          userId_articleId: {
+            userId,
+            articleId,
+          },
+        },
+        update: {
+          [flag]: true,
+          updatedAt: new Date(),
+        },
+        create: {
+          userId,
+          articleId,
+          focusTime: 0,
+          viewedPages: 0,
+          liked: false,
+          disliked: false,
+          saved: flag === "saved",
+          subscribed: false,
+          reposted: flag === "reposted",
+          updatedAt: new Date(),
+        },
+      });
+      return;
+    }
+
+    await this.prisma.userArticleMetric.updateMany({
+      where: {
+        userId,
+        articleId,
+      },
+      data: {
+        [flag]: false,
+        updatedAt: new Date(),
+      },
+    });
+  }
+
+  private async ensureArticleExists(articleId: string) {
+    const article = await this.prisma.article.findUnique({
+      where: { id: articleId },
+      select: { id: true },
+    });
+    if (!article) throw new NotFoundException("Article not found");
   }
 
   private async persistStructuredContent(tx: any, articleId: string, content: unknown) {
