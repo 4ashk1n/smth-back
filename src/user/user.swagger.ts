@@ -15,26 +15,15 @@ export class UserDto {
 
   @ApiProperty({ example: "https://example.com/avatar.png" })
   avatar!: string;
-}
 
-export class CreateUserDto {
-  @ApiProperty({ example: "john_doe" })
-  username!: string;
+  @ApiPropertyOptional({ example: "john@example.com", nullable: true })
+  email!: string | null;
 
-  @ApiProperty({ example: "John" })
-  firstname!: string;
-
-  @ApiProperty({ example: "Doe" })
-  lastname!: string;
-
-  @ApiProperty({ example: "https://example.com/avatar.png" })
-  avatar!: string;
+  @ApiPropertyOptional({ example: "google", nullable: true })
+  provider!: string | null;
 }
 
 export class UpdateUserDto {
-  @ApiPropertyOptional({ example: "john_doe" })
-  username?: string;
-
   @ApiPropertyOptional({ example: "John" })
   firstname?: string;
 
@@ -59,12 +48,4 @@ export class UserListResponse {
 
   @ApiProperty({ type: [UserDto] })
   data!: UserDto[];
-}
-
-export class DeleteResponse {
-  @ApiProperty({ example: true })
-  success!: boolean;
-
-  @ApiProperty({ example: { id: "9a7f3f0b-4b8f-4c8b-b0d2-9f2e2c1c5b11" } })
-  data!: { id: string };
 }

@@ -92,6 +92,14 @@ export class ArticleResponse {
   data!: ArticleDto;
 }
 
+export class ArticleContentResponse {
+  @ApiProperty({ example: true })
+  success!: boolean;
+
+  @ApiProperty({ type: Object })
+  data!: Record<string, unknown>;
+}
+
 export class ArticleMetaResponse {
   @ApiProperty({ example: true })
   success!: boolean;

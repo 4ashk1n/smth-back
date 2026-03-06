@@ -8,14 +8,23 @@ datasource db {
 }
 
 model User {
-  id        String    @id @default(uuid())
-  username  String    @unique
-  avatar    String    @default("")
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
-  firstname String
-  lastname  String
-  articles  Article[]
+  id               String              @id @default(uuid())
+  username         String              @unique
+  firstname        String
+  lastname         String
+  avatar           String              @default("")
+  role             UserRole            @default(user)
+  email            String?             @unique
+  googleId         String?             @unique
+  refreshTokenHash String?
+  provider         String?             @default("local")
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+  articles         Article[]
+  articleMetrics   UserArticleMetric[]
+  feed             UserFeed[]
+  following        UserSubscription[]  @relation("UserFollowing")
+  followers        UserSubscription[]  @relation("UserFollowers")
 
   @@map("users")
 }
@@ -24,9 +33,9 @@ model Category {
   id           String    @id @default(uuid())
   name         String    @unique
   emoji        String
+  colors       Json
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
-  colors       Json
   mainArticles Article[] @relation("MainCategory")
   articles     Article[] @relation("ArticleCategories")
 
@@ -34,19 +43,22 @@ model Category {
 }
 
 model Article {
-  id             String        @id @default(uuid())
-  content        Json
-  title          String
-  description    String?
-  status         ArticleStatus @default(draft)
-  createdAt      DateTime      @default(now())
-  updatedAt      DateTime      @updatedAt
-  authorId       String
-  mainCategoryId String
-  publishedAt    DateTime?
-  author         User          @relation(fields: [authorId], references: [id])
-  mainCategory   Category      @relation("MainCategory", fields: [mainCategoryId], references: [id])
-  categories     Category[]    @relation("ArticleCategories")
+  id              String              @id @default(uuid())
+  title           String
+  description     String?
+  content         Json
+  authorId        String
+  mainCategoryId  String
+  status          ArticleStatus       @default(draft)
+  publishedAt     DateTime?
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+  author          User                @relation(fields: [authorId], references: [id])
+  mainCategory    Category            @relation("MainCategory", fields: [mainCategoryId], references: [id])
+  categories      Category[]          @relation("ArticleCategories")
+  topics          Topic[]
+  userMetrics     UserArticleMetric[]
+  userFeedEntries UserFeed[]
 
   @@map("articles")
 }
@@ -56,4 +68,118 @@ enum ArticleStatus {
   draft
   archived
   review
+}
+
+enum UserRole {
+  user
+  moderator
+  admin
+}
+
+model Topic {
+  id        String  @id @default(uuid())
+  articleId String
+  title     String
+  order     Int     @map("order")
+  article   Article @relation(fields: [articleId], references: [id])
+  pages     Page[]
+
+  @@map("topics")
+}
+
+model Page {
+  id      String  @id @default(uuid())
+  topicId String
+  order   Int     @map("order")
+  topic   Topic   @relation(fields: [topicId], references: [id])
+  blocks  Block[]
+
+  @@map("pages")
+}
+
+model Block {
+  id        String          @id @default(uuid())
+  pageId    String
+  type      String
+  layout    Json?
+  page      Page            @relation(fields: [pageId], references: [id])
+  paragraph BlockParagraph?
+  image     BlockImage?
+  icon      BlockIcon?
+
+  @@map("blocks")
+}
+
+model BlockParagraph {
+  id      String @id
+  content String
+  block   Block  @relation(fields: [id], references: [id])
+
+  @@map("blocks_paragraph")
+}
+
+model BlockImage {
+  id        String  @id
+  url       String
+  source    String?
+  sourceUrl String?
+  label     String?
+  block     Block   @relation(fields: [id], references: [id])
+
+  @@map("blocks_image")
+}
+
+model BlockIcon {
+  id    String @id
+  name  String
+  block Block  @relation(fields: [id], references: [id])
+
+  @@map("blocks_icon")
+}
+
+model UserArticleMetric {
+  userId        String
+  articleId     String
+  focusTime     Int
+  viewedPages   Int
+  liked         Boolean
+  saved         Boolean
+  disliked      Boolean
+  subscribed    Boolean
+  reposted      Boolean   @default(false)
+  firstViewedAt DateTime?
+  lastViewedAt  DateTime?
+  updatedAt     DateTime?
+  user          User      @relation(fields: [userId], references: [id])
+  article       Article   @relation(fields: [articleId], references: [id])
+
+  @@id([userId, articleId])
+  @@map("user_article_metrics")
+}
+
+model UserSubscription {
+  followerId  String
+  followingId String
+  createdAt   DateTime @default(now())
+  follower    User     @relation("UserFollowing", fields: [followerId], references: [id], onDelete: Cascade)
+  following   User     @relation("UserFollowers", fields: [followingId], references: [id], onDelete: Cascade)
+
+  @@id([followerId, followingId])
+  @@index([followingId])
+  @@map("user_subscriptions")
+}
+
+model UserFeed {
+  id        String   @id @default(uuid())
+  position  Int
+  articleId String
+  userId    String
+  score     Float
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id])
+  article   Article  @relation(fields: [articleId], references: [id])
+
+  @@unique([userId, position])
+  @@index([userId, articleId])
+  @@map("user_feed")
 }

@@ -1,5 +1,6 @@
 import { NestFactory } from '@nestjs/core';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import cookieParser from 'cookie-parser';
 import { AppModule } from './app.module';
 
 async function bootstrap() {
@@ -8,6 +9,7 @@ async function bootstrap() {
     origin: ['http://localhost:5173'],
     credentials: true,
   });
+  app.use(cookieParser());
   app.setGlobalPrefix("api");
   const config = new DocumentBuilder()
     .setTitle('SMTH API')
