@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Request, UnauthorizedException, UseGuards } from "@nestjs/common";
+import { Body, Controller, Delete, Get, Param, Post, Query, Request, UnauthorizedException, UseGuards } from "@nestjs/common";
 import { AuthGuard } from "@nestjs/passport";
 import { ApiBody, ApiCreatedResponse, ApiOkResponse, ApiParam, ApiQuery, ApiTags } from "@nestjs/swagger";
 import {
@@ -7,8 +7,9 @@ import {
   type ArticleListResponse,
   ArticleMetricsResponse,
   type ArticleResponse,
-  type CreateArticleResponse,
-  CreateArticleSchema,
+  type CreateEmptyDraft,
+  type CreateEmptyDraftResponse,
+  CreateEmptyDraftSchema,
   type DislikeArticleResponse,
   type LikeArticleResponse,
   type UpdateArticleResponse,
@@ -21,7 +22,7 @@ import { OptionalJwtAuthGuard } from "../auth/optional-jwt-auth.guard";
 import { ArticleService } from "./article.service";
 
 type ListQuery = z.infer<typeof ArticleListQuerySchema>;
-type CreateDto = z.infer<typeof CreateArticleSchema>;
+type CreateEmptyDraftDto = z.infer<typeof CreateEmptyDraftSchema>;
 type UpdateDto = z.infer<typeof UpdateArticleSchema>;
 type RequestWithUser = ExpressRequest & {
   user?: {
@@ -48,6 +49,21 @@ export class ArticleController {
     return this.articleService.list(query);
   }
 
+  @Post("empty-draft")
+  @UseGuards(AuthGuard("jwt"))
+  @ApiBody({ description: "CreateEmptyDraftSchema from @smth/shared" })
+  @ApiCreatedResponse({ description: "CreateEmptyDraftResponse from @smth/shared" })
+  createEmptyDraft(
+    @Body(new ZodValidationPipe(asZodType(CreateEmptyDraftSchema))) dto: CreateEmptyDraftDto,
+    @Request() req: RequestWithUser,
+  ): Promise<CreateEmptyDraftResponse> {
+    const userId = req.user?.id;
+    if (!userId) throw new UnauthorizedException("Unauthorized");
+    const payload = dto as CreateEmptyDraft;
+    if (payload.authorId !== userId) throw new UnauthorizedException("Unauthorized");
+    return this.articleService.createEmptyDraft(userId);
+  }
+
   @Get(":id")
   @ApiParam({ name: "id", type: String })
   @ApiOkResponse({ description: "ArticleResponse from @smth/shared" })
@@ -70,22 +86,44 @@ export class ArticleController {
     return this.articleService.getMetricsById(id, req.user?.id);
   }
 
-  @Post()
-  @ApiBody({ description: "CreateArticleSchema from @smth/shared" })
-  @ApiCreatedResponse({ description: "CreateArticleResponse from @smth/shared" })
-  create(@Body(new ZodValidationPipe(asZodType(CreateArticleSchema))) dto: CreateDto): Promise<CreateArticleResponse> {
-    return this.articleService.create(dto);
-  }
-
-  @Patch(":id")
+  @Post(":id/draft")
+  @UseGuards(AuthGuard("jwt"))
   @ApiParam({ name: "id", type: String })
   @ApiBody({ description: "UpdateArticleSchema from @smth/shared" })
   @ApiOkResponse({ description: "UpdateArticleResponse from @smth/shared" })
-  update(
+  saveDraft(
     @Param("id") id: string,
     @Body(new ZodValidationPipe(asZodType(UpdateArticleSchema))) dto: UpdateDto,
+    @Request() req: RequestWithUser,
   ): Promise<UpdateArticleResponse> {
-    return this.articleService.update(id, dto);
+    const userId = req.user?.id;
+    if (!userId) throw new UnauthorizedException("Unauthorized");
+    return this.articleService.saveDraftById(id, userId, dto);
+  }
+
+  @Post(":id/review")
+  @UseGuards(AuthGuard("jwt"))
+  @ApiParam({ name: "id", type: String })
+  @ApiBody({ description: "UpdateArticleSchema from @smth/shared" })
+  @ApiOkResponse({ description: "UpdateArticleResponse from @smth/shared" })
+  submitForReview(
+    @Param("id") id: string,
+    @Body(new ZodValidationPipe(asZodType(UpdateArticleSchema))) dto: UpdateDto,
+    @Request() req: RequestWithUser,
+  ): Promise<UpdateArticleResponse> {
+    const userId = req.user?.id;
+    if (!userId) throw new UnauthorizedException("Unauthorized");
+    return this.articleService.submitForReviewById(id, userId, dto);
+  }
+
+  @Delete(":id/draft")
+  @UseGuards(AuthGuard("jwt"))
+  @ApiParam({ name: "id", type: String })
+  @ApiOkResponse({ description: "Delete draft response" })
+  deleteById(@Param("id") id: string, @Request() req: RequestWithUser): Promise<{ success: true; data: { id: string } }> {
+    const userId = req.user?.id;
+    if (!userId) throw new UnauthorizedException("Unauthorized");
+    return this.articleService.deleteByIdForAuthor(id, userId);
   }
 
   @Post(":id/like")
