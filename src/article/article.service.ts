@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
 import {
   ArticleContentResponse,
   ArticleContentResponseSchema,
@@ -10,27 +10,27 @@ import {
   ArticleMetricsResponseSchema,
   ArticleResponseSchema,
   Content,
-  CreateArticleResponseSchema,
-  CreateArticleSchema,
+  CreateEmptyDraftResponseSchema,
   DislikeArticleResponseSchema,
   LikeArticleResponseSchema,
   UpdateArticleResponseSchema,
   UpdateArticleSchema,
   type ArticleListResponse,
   type ArticleResponse,
-  type CreateArticleResponse,
+  type CreateEmptyDraftResponse,
   type UpdateArticleResponse,
 } from "@smth/shared";
 import type { z } from "zod";
+import { INTERNAL_DRAFT_CATEGORY_NAME } from "../common/constants/internal-category.constants";
 import { PrismaService } from "../prisma/prisma.service";
 
-type CreateDto = z.infer<typeof CreateArticleSchema>;
 type UpdateDto = z.infer<typeof UpdateArticleSchema>;
 type ListQuery = z.infer<typeof ArticleListQuerySchema>;
+type DeleteArticleResponse = { success: true; data: { id: string } };
 
 @Injectable()
 export class ArticleService {
-  private testAuthorId: string | null = null;
+  private static readonly MAX_DRAFTS_PER_USER = 10;
   private testCategoryId: string | null = null;
 
   constructor(private readonly prisma: PrismaService) { }
@@ -333,36 +333,18 @@ export class ArticleService {
     });
   }
 
-  private async getTestAuthorId() {
-    if (this.testAuthorId) return this.testAuthorId;
-
-    const user = await this.prisma.user.upsert({
-      where: { username: "test-author" },
-      create: {
-        username: "test-author",
-        firstname: "Test",
-        lastname: "Author",
-      },
-      update: {},
-      select: { id: true },
-    });
-
-    this.testAuthorId = user.id;
-    return user.id;
-  }
-
   private async getTestCategoryId() {
     if (this.testCategoryId) return this.testCategoryId;
 
     const category = await this.prisma.category.upsert({
-      where: { name: "Test Category" },
+      where: { name: INTERNAL_DRAFT_CATEGORY_NAME },
       create: {
-        name: "Test Category",
-        emoji: "??",
+        name: INTERNAL_DRAFT_CATEGORY_NAME,
+        emoji: "_",
         colors: {
-          lightColor: "#f5f5f5",
-          darkColor: "#1f1f1f",
-          accentColor: "#ff6a00",
+          lightColor: "#f3f4f6",
+          darkColor: "#111827",
+          accentColor: "#9ca3af",
         },
       },
       update: {},
@@ -373,117 +355,87 @@ export class ArticleService {
     return category.id;
   }
 
-  private async resolveCategoryIds(dto: CreateDto) {
-    const categoryIdsInput = dto.categoryIds ?? [];
-    const ids = [dto.mainCategoryId, ...categoryIdsInput];
-    const existing = await this.prisma.category.findMany({
-      where: { id: { in: ids } },
-      select: { id: true },
+  async createEmptyDraft(authorId: string): Promise<CreateEmptyDraftResponse> {
+    const draftsCount = await this.prisma.article.count({
+      where: {
+        authorId,
+        status: "draft",
+      },
     });
-    const existingIds = new Set(existing.map((c) => c.id));
+    if (draftsCount >= ArticleService.MAX_DRAFTS_PER_USER) {
+      throw new BadRequestException(`Draft limit reached (${ArticleService.MAX_DRAFTS_PER_USER})`);
+    }
 
-    const fallbackId = await this.getTestCategoryId();
-    const mainCategoryId = existingIds.has(dto.mainCategoryId) ? dto.mainCategoryId : fallbackId;
-
-    const categoryIds = categoryIdsInput.filter((id) => existingIds.has(id));
-    if (categoryIds.length === 0) categoryIds.push(fallbackId);
-
-    return { mainCategoryId, categoryIds };
-  }
-
-  async create(dto: CreateDto): Promise<CreateArticleResponse> {
-    const authorId = dto.authorId ?? (await this.getTestAuthorId());
-    const { mainCategoryId, categoryIds } = await this.resolveCategoryIds(dto);
-
-    const status = dto.status;
-    const publishedAt = status === "published" ? new Date() : null;
+    const mainCategoryId = await this.getTestCategoryId();
 
     const created = await this.prisma.$transaction(async (tx) => {
       const article = await tx.article.create({
         data: {
-          title: dto.title,
-          description: dto.description,
-          content: dto.content as any,
-          status,
-          publishedAt,
+          title: "",
+          description: null,
+          content: {
+            articleId: "00000000-0000-0000-0000-000000000000",
+            topics: [],
+            pages: [],
+            blocks: [],
+          } as any,
           authorId,
           mainCategoryId,
-          categories: { connect: categoryIds.map((id) => ({ id })) },
+          status: "draft",
+          publishedAt: null,
+          categories: { connect: [{ id: mainCategoryId }] },
         },
-        select: {
-          id: true,
-          title: true,
-          description: true,
-          content: true,
-          authorId: true,
-          mainCategoryId: true,
-          status: true,
-          publishedAt: true,
-          createdAt: true,
-          updatedAt: true,
-          categories: { select: { id: true } },
+        select: { id: true },
+      });
+
+      await tx.article.update({
+        where: { id: article.id },
+        data: {
+          content: {
+            articleId: article.id,
+            topics: [],
+            pages: [],
+            blocks: [],
+          } as any,
         },
       });
 
-      await this.persistStructuredContent(tx, article.id, dto.content);
-
-      return {
-        ...article,
-        categories: article.categories.map((c) => c.id),
-      };
+      return article;
     });
 
-    return CreateArticleResponseSchema.parse({ success: true, data: created });
+    return CreateEmptyDraftResponseSchema.parse({
+      success: true,
+      data: { id: created.id },
+    });
   }
 
-  async update(id: string, dto: UpdateDto): Promise<UpdateArticleResponse> {
-    const current = await this.prisma.article.findUnique({
+  async deleteByIdForAuthor(id: string, authorId: string): Promise<DeleteArticleResponse> {
+    const article = await this.prisma.article.findUnique({
       where: { id },
-      select: { status: true, publishedAt: true },
+      select: { id: true, authorId: true, status: true },
     });
-    if (!current) throw new NotFoundException("Article not found");
-
-    const nextStatus = dto.status ? dto.status : undefined;
-
-    const data: any = {};
-    if (dto.title !== undefined) data.title = dto.title;
-    if (dto.description !== undefined) data.description = dto.description;
-    if (dto.content !== undefined) data.content = dto.content as any;
-    if (dto.mainCategoryId !== undefined) data.mainCategoryId = dto.mainCategoryId;
-    if (nextStatus) data.status = nextStatus;
-
-    if (dto.categoryIds !== undefined) {
-      data.categories = { set: dto.categoryIds.map((cid) => ({ id: cid })) };
+    if (!article) throw new NotFoundException("Article not found");
+    if (article.authorId !== authorId) throw new ForbiddenException("You can delete only your own article");
+    if (article.status !== "draft" && article.status !== "review") {
+      throw new BadRequestException("Only draft or review articles can be deleted here");
     }
 
-    if (nextStatus === "published" && !current.publishedAt) data.publishedAt = new Date();
-    if (nextStatus && nextStatus !== "published") data.publishedAt = null;
-
-    const updated = await this.prisma.article.update({
-      where: { id },
-      data,
-      select: {
-        id: true,
-        title: true,
-        description: true,
-        content: true,
-        authorId: true,
-        mainCategoryId: true,
-        status: true,
-        publishedAt: true,
-        createdAt: true,
-        updatedAt: true,
-        categories: { select: { id: true } },
-      },
+    await this.prisma.$transaction(async (tx) => {
+      await tx.userArticleMetric.deleteMany({ where: { articleId: id } });
+      await tx.userFeed.deleteMany({ where: { articleId: id } });
+      await this.deleteStructuredContent(tx, id);
+      await tx.article.delete({ where: { id } });
     });
 
-    return UpdateArticleResponseSchema.parse({
-      success: true,
-      data: {
-        ...updated,
-        categories: updated.categories.map((c) => c.id),
-      },
-    });
+    return { success: true, data: { id } };
+  }
+
+  async saveDraftById(id: string, authorId: string, dto: UpdateDto): Promise<UpdateArticleResponse> {
+    return this.updateDraftStatusById(id, authorId, dto, "draft");
+  }
+
+  async submitForReviewById(id: string, authorId: string, dto: UpdateDto): Promise<UpdateArticleResponse> {
+    return this.updateDraftStatusById(id, authorId, dto, "review");
   }
 
   async likeArticle(articleId: string, userId: string) {
@@ -658,11 +610,281 @@ export class ArticleService {
     if (!article) throw new NotFoundException("Article not found");
   }
 
+  private async updateDraftStatusById(
+    id: string,
+    authorId: string,
+    dto: UpdateDto,
+    status: "draft" | "review",
+  ): Promise<UpdateArticleResponse> {
+    const existing = await this.prisma.article.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        authorId: true,
+        title: true,
+        mainCategoryId: true,
+        categories: { select: { id: true } },
+      },
+    });
+    if (!existing) throw new NotFoundException("Article not found");
+    if (existing.authorId !== authorId) throw new ForbiddenException("You can edit only your own article");
+
+    const fallbackCategoryId = await this.getTestCategoryId();
+    const nextTitle = dto.title !== undefined ? dto.title : existing.title;
+    const nextMainCategoryId = dto.mainCategoryId !== undefined
+      ? await this.resolveMainCategoryId(dto.mainCategoryId)
+      : existing.mainCategoryId;
+
+    if (status === "review") {
+      if (!nextTitle.trim()) {
+        throw new BadRequestException("Title is required before sending to review");
+      }
+      if (nextMainCategoryId === fallbackCategoryId) {
+        throw new BadRequestException("Main category is required before sending to review");
+      }
+    }
+
+    const data: any = {
+      status,
+      publishedAt: null,
+    };
+    if (dto.title !== undefined) data.title = dto.title;
+    if (dto.description !== undefined) data.description = dto.description;
+    if (dto.content !== undefined) data.content = dto.content as any;
+    if (dto.mainCategoryId !== undefined) data.mainCategoryId = nextMainCategoryId;
+    if (dto.categoryIds !== undefined || status === "review") {
+      const incomingCategoryIds = dto.categoryIds ?? existing.categories.map((c) => c.id);
+      const filteredCategoryIds =
+        status === "review"
+          ? incomingCategoryIds.filter((cid) => cid !== fallbackCategoryId)
+          : incomingCategoryIds;
+      const withMain = filteredCategoryIds.includes(nextMainCategoryId)
+        ? filteredCategoryIds
+        : [...filteredCategoryIds, nextMainCategoryId];
+      data.categories = { set: withMain.map((cid) => ({ id: cid })) };
+    }
+
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const article = await tx.article.update({
+        where: { id },
+        data,
+        select: {
+          id: true,
+          title: true,
+          description: true,
+          content: true,
+          authorId: true,
+          mainCategoryId: true,
+          status: true,
+          publishedAt: true,
+          createdAt: true,
+          updatedAt: true,
+          categories: { select: { id: true } },
+        },
+      });
+
+      if (dto.content !== undefined) {
+        await this.deleteStructuredContent(tx, id);
+        await this.persistStructuredContent(tx, id, dto.content);
+      }
+
+      return article;
+    });
+
+    return UpdateArticleResponseSchema.parse({
+      success: true,
+      data: {
+        ...updated,
+        categories: updated.categories.map((c) => c.id),
+      },
+    });
+  }
+
+  private async deleteStructuredContent(tx: any, articleId: string) {
+    await tx.blockParagraph.deleteMany({
+      where: {
+        block: {
+          page: {
+            topic: {
+              articleId,
+            },
+          },
+        },
+      },
+    });
+    await tx.blockImage.deleteMany({
+      where: {
+        block: {
+          page: {
+            topic: {
+              articleId,
+            },
+          },
+        },
+      },
+    });
+    await tx.blockIcon.deleteMany({
+      where: {
+        block: {
+          page: {
+            topic: {
+              articleId,
+            },
+          },
+        },
+      },
+    });
+    await tx.block.deleteMany({
+      where: {
+        page: {
+          topic: {
+            articleId,
+          },
+        },
+      },
+    });
+    await tx.page.deleteMany({
+      where: {
+        topic: {
+          articleId,
+        },
+      },
+    });
+    await tx.topic.deleteMany({
+      where: { articleId },
+    });
+  }
+
+  private async resolveMainCategoryId(mainCategoryId: string | null): Promise<string> {
+    const fallbackId = await this.getTestCategoryId();
+    if (!mainCategoryId) return fallbackId;
+
+    const existing = await this.prisma.category.findUnique({
+      where: { id: mainCategoryId },
+      select: { id: true },
+    });
+
+    return existing ? existing.id : fallbackId;
+  }
+
   private async persistStructuredContent(tx: any, articleId: string, content: unknown) {
     const contentObj = this.asRecord(content);
     if (!contentObj) return;
 
     const topics = Array.isArray(contentObj.topics) ? contentObj.topics : [];
+    const pages = Array.isArray(contentObj.pages) ? contentObj.pages : [];
+    const blocks = Array.isArray(contentObj.blocks) ? contentObj.blocks : [];
+
+    // Shared ContentSchema stores topics/pages/blocks as flat arrays.
+    if (pages.length > 0 || blocks.length > 0) {
+      for (let tIndex = 0; tIndex < topics.length; tIndex += 1) {
+        const topicObj = this.asRecord(topics[tIndex]);
+        if (!topicObj) continue;
+
+        const topicId = this.asNonEmptyString(topicObj.id);
+        if (!topicId) {
+          throw new BadRequestException(`Invalid topic id at index ${tIndex}`);
+        }
+
+        await tx.topic.create({
+          data: {
+            id: topicId,
+            articleId,
+            title: typeof topicObj.title === "string" && topicObj.title.trim() ? topicObj.title : "Untitled topic",
+            order: this.toInt(topicObj.order, tIndex + 1),
+          },
+        });
+      }
+
+      for (let pIndex = 0; pIndex < pages.length; pIndex += 1) {
+        const pageObj = this.asRecord(pages[pIndex]);
+        if (!pageObj) continue;
+
+        const pageId = this.asNonEmptyString(pageObj.id);
+        const topicId = this.asNonEmptyString(pageObj.topicId);
+        if (!pageId || !topicId) {
+          throw new BadRequestException(`Invalid page at index ${pIndex}`);
+        }
+
+        await tx.page.create({
+          data: {
+            id: pageId,
+            topicId,
+            order: this.toInt(pageObj.order, pIndex),
+          },
+        });
+      }
+
+      for (let bIndex = 0; bIndex < blocks.length; bIndex += 1) {
+        const blockObj = this.asRecord(blocks[bIndex]);
+        if (!blockObj) continue;
+
+        const blockId = this.asNonEmptyString(blockObj.id);
+        const pageId = this.asNonEmptyString(blockObj.pageId);
+        const type = this.asNonEmptyString(blockObj.type);
+        if (!blockId || !pageId || !type) {
+          throw new BadRequestException(`Invalid block at index ${bIndex}`);
+        }
+
+        await tx.block.create({
+          data: {
+            id: blockId,
+            pageId,
+            type,
+            layout: this.toJsonNullable(blockObj.layout),
+          },
+        });
+
+        if (type === "paragraph") {
+          const paragraphContent =
+            typeof blockObj.content === "string"
+              ? blockObj.content
+              : JSON.stringify(blockObj.content ?? "");
+          await tx.blockParagraph.create({
+            data: {
+              id: blockId,
+              content: paragraphContent,
+            },
+          });
+          continue;
+        }
+
+        if (type === "image") {
+          const url = this.asNonEmptyString(blockObj.url);
+          if (!url) throw new BadRequestException(`Invalid image block at index ${bIndex}`);
+
+          await tx.blockImage.create({
+            data: {
+              id: blockId,
+              url,
+              source: typeof blockObj.source === "string" ? blockObj.source : null,
+              sourceUrl: typeof blockObj.sourceUrl === "string" ? blockObj.sourceUrl : null,
+              label: typeof blockObj.label === "string" ? blockObj.label : null,
+            },
+          });
+          continue;
+        }
+
+        if (type === "icon") {
+          const name = this.asNonEmptyString(blockObj.name);
+          if (!name) throw new BadRequestException(`Invalid icon block at index ${bIndex}`);
+
+          await tx.blockIcon.create({
+            data: {
+              id: blockId,
+              name,
+            },
+          });
+          continue;
+        }
+
+        throw new BadRequestException(`Unsupported block type "${type}" at index ${bIndex}`);
+      }
+
+      return;
+    }
+
+    // Backward compatibility for legacy nested shape: topics[].pages[].blocks[].
     for (let tIndex = 0; tIndex < topics.length; tIndex += 1) {
       const topicObj = this.asRecord(topics[tIndex]);
       if (!topicObj) continue;
@@ -671,14 +893,14 @@ export class ArticleService {
         data: {
           articleId,
           title: typeof topicObj.title === "string" && topicObj.title.trim() ? topicObj.title : "Untitled topic",
-          order: this.toInt(topicObj.order, tIndex),
+          order: this.toInt(topicObj.order, tIndex + 1),
         },
         select: { id: true },
       });
 
-      const pages = Array.isArray(topicObj.pages) ? topicObj.pages : [];
-      for (let pIndex = 0; pIndex < pages.length; pIndex += 1) {
-        const pageObj = this.asRecord(pages[pIndex]);
+      const nestedPages = Array.isArray(topicObj.pages) ? topicObj.pages : [];
+      for (let pIndex = 0; pIndex < nestedPages.length; pIndex += 1) {
+        const pageObj = this.asRecord(nestedPages[pIndex]);
         if (!pageObj) continue;
 
         const createdPage = await tx.page.create({
@@ -689,12 +911,12 @@ export class ArticleService {
           select: { id: true },
         });
 
-        const blocks = Array.isArray(pageObj.blocks) ? pageObj.blocks : [];
-        for (let bIndex = 0; bIndex < blocks.length; bIndex += 1) {
-          const blockObj = this.asRecord(blocks[bIndex]);
+        const nestedBlocks = Array.isArray(pageObj.blocks) ? pageObj.blocks : [];
+        for (let bIndex = 0; bIndex < nestedBlocks.length; bIndex += 1) {
+          const blockObj = this.asRecord(nestedBlocks[bIndex]);
           if (!blockObj) continue;
 
-          const type = typeof blockObj.type === "string" && blockObj.type.trim() ? blockObj.type : "paragraph";
+          const type = this.asNonEmptyString(blockObj.type) ?? "paragraph";
           const createdBlock = await tx.block.create({
             data: {
               pageId: createdPage.id,
@@ -719,7 +941,7 @@ export class ArticleService {
           }
 
           if (type === "image") {
-            const url = typeof blockObj.url === "string" ? blockObj.url.trim() : "";
+            const url = this.asNonEmptyString(blockObj.url);
             if (!url) {
               throw new BadRequestException(`Invalid image block at topic ${tIndex}, page ${pIndex}, block ${bIndex}`);
             }
@@ -736,7 +958,7 @@ export class ArticleService {
           }
 
           if (type === "icon") {
-            const name = typeof blockObj.name === "string" ? blockObj.name.trim() : "";
+            const name = this.asNonEmptyString(blockObj.name);
             if (!name) {
               throw new BadRequestException(`Invalid icon block at topic ${tIndex}, page ${pIndex}, block ${bIndex}`);
             }
@@ -764,6 +986,12 @@ export class ArticleService {
   private asRecord(value: unknown): Record<string, unknown> | null {
     if (!value || typeof value !== "object" || Array.isArray(value)) return null;
     return value as Record<string, unknown>;
+  }
+
+  private asNonEmptyString(value: unknown): string | null {
+    if (typeof value !== "string") return null;
+    const trimmed = value.trim();
+    return trimmed ? trimmed : null;
   }
 
   private toJsonNullable(value: unknown) {
