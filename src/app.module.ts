@@ -6,9 +6,10 @@ import { ArticleModule } from './article/article.module';
 import { CategoryModule } from './category/category.module';
 import { UserModule } from './user/user.module';
 import { AuthModule } from './auth/auth.module';
+import { SearchModule } from './search/search.module';
 
 @Module({
-  imports: [PrismaModule, ArticleModule, CategoryModule, UserModule, AuthModule],
+  imports: [PrismaModule, ArticleModule, CategoryModule, UserModule, AuthModule, SearchModule],
   controllers: [AppController],
   providers: [AppService],
 })

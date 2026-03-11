@@ -10,15 +10,13 @@ import {
   IsSubscribedResponse,
   type SubscribeUserResponse,
   type UnsubscribeUserResponse,
-  type UpdateUserResponse,
   UpdateUserSchema,
   type UserLikedArticlesResponse,
-  type UserListResponse,
+  type UserMeta,
   UserMetricsResponse,
   type UserOtherArticlesResponse,
   type UserPublishedArticlesResponse,
   type UserRepostedArticlesResponse,
-  type UserResponse,
   type UserSavedArticlesResponse
 } from "@smth/shared";
 import type { Request as ExpressRequest } from "express";
@@ -27,6 +25,8 @@ import { ZodValidationPipe } from "../common/pipes/zod-validation.pipe";
 import { UserService } from "./user.service";
 
 type UpdateDto = z.infer<typeof UpdateUserSchema>;
+type UserMetaResponse = { success: true; data: UserMeta };
+type UserMetaListResponse = { success: true; data: UserMeta[] };
 type RequestWithUser = ExpressRequest & {
   user?: {
     id: string;
@@ -43,14 +43,14 @@ export class UserController {
 
   @Get()
   @ApiOkResponse({ description: "User list response from shared contract" })
-  list(): Promise<UserListResponse> {
+  list(): Promise<UserMetaListResponse> {
     return this.userService.list();
   }
 
   @Get(":id")
   @ApiParam({ name: "id", type: String })
   @ApiOkResponse({ description: "User response from shared contract" })
-  getById(@Param("id") id: string): Promise<UserResponse> {
+  getById(@Param("id") id: string): Promise<UserMetaResponse> {
     return this.userService.getById(id);
   }
 
@@ -61,7 +61,7 @@ export class UserController {
   update(
     @Param("id") id: string,
     @Body(new ZodValidationPipe(asZodType(UpdateUserSchema))) dto: UpdateDto,
-  ): Promise<UpdateUserResponse> {
+  ): Promise<UserMetaResponse> {
     return this.userService.update(id, dto);
   }
 
