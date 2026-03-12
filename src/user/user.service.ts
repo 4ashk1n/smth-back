@@ -5,42 +5,40 @@ import {
   isSubscribedResponseSchema,
   SubscribeUserResponseSchema,
   UnsubscribeUserResponseSchema,
-  UpdateUserResponseSchema,
   UpdateUserSchema,
+  UserMetaSchema,
   UserFollowersResponseSchema,
   UserFollowingResponseSchema,
   UserLikedArticlesResponseSchema,
-  UserListResponseSchema,
   UserMetricsResponse,
   UserMetricsResponseSchema,
   UserOtherArticlesResponseSchema,
   UserPublishedArticlesResponseSchema,
   UserRepostedArticlesResponseSchema,
-  UserResponseSchema,
   UserSavedArticlesResponseSchema,
   type SubscribeUserResponse,
   type UnsubscribeUserResponse,
-  type UpdateUserResponse,
   type UserFollowersResponse,
   type UserFollowingResponse,
   type UserLikedArticlesResponse,
-  type UserListResponse,
+  type UserMeta,
   type UserOtherArticlesResponse,
   type UserPublishedArticlesResponse,
   type UserRepostedArticlesResponse,
-  type UserResponse,
   type UserSavedArticlesResponse,
 } from "@smth/shared";
 import type { z } from "zod";
 import { PrismaService } from "../prisma/prisma.service";
 
 type UpdateDto = z.infer<typeof UpdateUserSchema>;
+type UserMetaResponse = { success: true; data: UserMeta };
+type UserMetaListResponse = { success: true; data: UserMeta[] };
 
 @Injectable()
 export class UserService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async list(): Promise<UserListResponse> {
+  async list(): Promise<UserMetaListResponse> {
     const rows = await this.prisma.user.findMany({
       select: {
         id: true,
@@ -48,21 +46,17 @@ export class UserService {
         firstname: true,
         lastname: true,
         avatar: true,
-        role: true,
-        email: true,
-        googleId: true,
-        refreshTokenHash: true,
-        provider: true,
-        createdAt: true,
-        updatedAt: true,
       },
       orderBy: { createdAt: "desc" },
     });
 
-    return UserListResponseSchema.parse({ success: true, data: rows });
+    return {
+      success: true,
+      data: UserMetaSchema.array().parse(rows),
+    };
   }
 
-  async getById(id: string): Promise<UserResponse> {
+  async getById(id: string): Promise<UserMetaResponse> {
     const row = await this.prisma.user.findUnique({
       where: { id },
       select: {
@@ -71,21 +65,17 @@ export class UserService {
         firstname: true,
         lastname: true,
         avatar: true,
-        role: true,
-        email: true,
-        googleId: true,
-        refreshTokenHash: true,
-        provider: true,
-        createdAt: true,
-        updatedAt: true,
       },
     });
     if (!row) throw new NotFoundException("User not found");
 
-    return UserResponseSchema.parse({ success: true, data: row });
+    return {
+      success: true,
+      data: UserMetaSchema.parse(row),
+    };
   }
 
-  async update(id: string, dto: UpdateDto): Promise<UpdateUserResponse> {
+  async update(id: string, dto: UpdateDto): Promise<UserMetaResponse> {
     const existing = await this.prisma.user.findUnique({
       where: { id },
       select: { id: true },
@@ -106,17 +96,13 @@ export class UserService {
         firstname: true,
         lastname: true,
         avatar: true,
-        role: true,
-        email: true,
-        googleId: true,
-        refreshTokenHash: true,
-        provider: true,
-        createdAt: true,
-        updatedAt: true,
       },
     });
 
-    return UpdateUserResponseSchema.parse({ success: true, data: updated });
+    return {
+      success: true,
+      data: UserMetaSchema.parse(updated),
+    };
   }
 
   async subscribe(currentUserId: string, targetUserId: string): Promise<SubscribeUserResponse> {
