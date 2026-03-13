@@ -7,9 +7,10 @@ import { CategoryModule } from './category/category.module';
 import { UserModule } from './user/user.module';
 import { AuthModule } from './auth/auth.module';
 import { SearchModule } from './search/search.module';
+import { AiModule } from './ai/ai.module';
 
 @Module({
-  imports: [PrismaModule, ArticleModule, CategoryModule, UserModule, AuthModule, SearchModule],
+  imports: [PrismaModule, ArticleModule, CategoryModule, UserModule, AuthModule, SearchModule, AiModule],
   controllers: [AppController],
   providers: [AppService],
 })
