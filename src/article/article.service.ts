@@ -9,7 +9,6 @@ import {
   ArticleMetricsResponse,
   ArticleMetricsResponseSchema,
   ArticleResponseSchema,
-  Content,
   CreateEmptyDraftResponseSchema,
   DislikeArticleResponseSchema,
   LikeArticleResponseSchema,
@@ -23,6 +22,7 @@ import {
 import type { z } from "zod";
 import { INTERNAL_DRAFT_CATEGORY_NAME } from "../common/constants/internal-category.constants";
 import { PrismaService } from "../prisma/prisma.service";
+import { ArticleContentService } from "./article-content.service";
 
 type UpdateDto = z.infer<typeof UpdateArticleSchema>;
 type ListQuery = z.infer<typeof ArticleListQuerySchema>;
@@ -33,7 +33,10 @@ export class ArticleService {
   private static readonly MAX_DRAFTS_PER_USER = 10;
   private testCategoryId: string | null = null;
 
-  constructor(private readonly prisma: PrismaService) { }
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly articleContentService: ArticleContentService,
+  ) { }
 
   async list(query: ListQuery): Promise<ArticleListResponse> {
     const { page, limit, status, mainCategoryId, authorId, search } = query;
@@ -113,7 +116,6 @@ export class ArticleService {
         id: true,
         title: true,
         description: true,
-        content: true,
         authorId: true,
         mainCategoryId: true,
         status: true,
@@ -125,12 +127,13 @@ export class ArticleService {
     });
 
     if (!row) throw new NotFoundException("Article not found");
+    const content = await this.articleContentService.buildContentByArticleId(id);
 
     const dto = {
       id: row.id,
       title: row.title,
       description: row.description,
-      content: row.content as any,
+      content,
       authorId: row.authorId,
       mainCategoryId: row.mainCategoryId,
       status: row.status,
@@ -150,120 +153,7 @@ export class ArticleService {
       select: { id: true },
     });
     if (!article) throw new NotFoundException("Article not found");
-
-    type ContentRow = {
-      topic_id: string;
-      topic_title: string;
-      topic_order: number;
-      page_id: string;
-      page_order: number;
-      page_topic_id: string;
-      block_id: string | null;
-      block_type: string | null;
-      block_page_id: string | null;
-      block_layout: unknown;
-      paragraph_content: string | null;
-      image_url: string | null;
-      image_source: string | null;
-      image_source_url: string | null;
-      image_label: string | null;
-      icon_name: string | null;
-    };
-
-    const rows = await this.prisma.$queryRaw<ContentRow[]>`
-      SELECT
-        t.id AS topic_id,
-        t.title AS topic_title,
-        t."order" AS topic_order,
-        p.id AS page_id,
-        p."order" AS page_order,
-        p."topicId" AS page_topic_id,
-        b.id AS block_id,
-        b.type AS block_type,
-        b."pageId" AS block_page_id,
-        b.layout AS block_layout,
-        bp.content AS paragraph_content,
-        bi.url AS image_url,
-        bi.source AS image_source,
-        bi."sourceUrl" AS image_source_url,
-        bi.label AS image_label,
-        bk.name AS icon_name
-      FROM topics t
-      JOIN pages p ON p."topicId" = t.id
-      LEFT JOIN blocks b ON b."pageId" = p.id
-      LEFT JOIN blocks_paragraph bp ON bp.id = b.id AND b.type = 'paragraph'
-      LEFT JOIN blocks_image bi ON bi.id = b.id AND b.type = 'image'
-      LEFT JOIN blocks_icon bk ON bk.id = b.id AND b.type = 'icon'
-      WHERE t."articleId" = ${id}
-      ORDER BY t."order", p."order", b.id
-    `;
-
-    const topicsMap = new Map<string, Content["topics"][number]>();
-    const pagesMap = new Map<string, Content["pages"][number]>();
-    const blocksMap = new Map<string, Content["blocks"][number]>();
-
-    for (const row of rows) {
-      let topic = topicsMap.get(row.topic_id);
-      if (!topic) {
-        topic = {
-          id: row.topic_id,
-          articleId: id,
-          title: row.topic_title,
-          order: row.topic_order,
-        };
-        topicsMap.set(row.topic_id, topic);
-      }
-
-      let page = pagesMap.get(row.page_id);
-      if (!page) {
-        page = {
-          id: row.page_id,
-          topicId: row.page_topic_id,
-          order: row.page_order,
-        };
-        pagesMap.set(row.page_id, page);
-      }
-
-      if (row.block_id && row.block_type && row.block_page_id && !blocksMap.has(row.block_id)) {
-        const baseBlock = {
-          id: row.block_id,
-          type: row.block_type,
-          pageId: row.block_page_id,
-          layout: this.normalizeLayout(row.block_layout, row.block_id),
-          object3d: null,
-        };
-
-        if (row.block_type === "paragraph") {
-          blocksMap.set(row.block_id, {
-            ...baseBlock,
-            type: "paragraph",
-            content: row.paragraph_content ?? "",
-          });
-        } else if (row.block_type === "image") {
-          blocksMap.set(row.block_id, {
-            ...baseBlock,
-            type: "image",
-            url: row.image_url ?? "https://picsum.photos/seed/fallback/1200/800",
-            source: row.image_source,
-            sourceUrl: row.image_source_url,
-            label: row.image_label,
-          });
-        } else if (row.block_type === "icon") {
-          blocksMap.set(row.block_id, {
-            ...baseBlock,
-            type: "icon",
-            name: row.icon_name ?? "FaRegCircle",
-          });
-        }
-      }
-    }
-
-    const content: Content = {
-      articleId: id,
-      topics: Array.from(topicsMap.values()).sort((a, b) => a.order - b.order),
-      pages: Array.from(pagesMap.values()).sort((a, b) => a.order - b.order),
-      blocks: Array.from(blocksMap.values()),
-    };
+    const content = await this.articleContentService.buildContentByArticleId(id);
 
     return ArticleContentResponseSchema.parse({
       success: true,
@@ -373,12 +263,7 @@ export class ArticleService {
         data: {
           title: "",
           description: null,
-          content: {
-            articleId: "00000000-0000-0000-0000-000000000000",
-            topics: [],
-            pages: [],
-            blocks: [],
-          } as any,
+          content: {},
           authorId,
           mainCategoryId,
           status: "draft",
@@ -386,18 +271,6 @@ export class ArticleService {
           categories: { connect: [{ id: mainCategoryId }] },
         },
         select: { id: true },
-      });
-
-      await tx.article.update({
-        where: { id: article.id },
-        data: {
-          content: {
-            articleId: article.id,
-            topics: [],
-            pages: [],
-            blocks: [],
-          } as any,
-        },
       });
 
       return article;
@@ -650,7 +523,6 @@ export class ArticleService {
     };
     if (dto.title !== undefined) data.title = dto.title;
     if (dto.description !== undefined) data.description = dto.description;
-    if (dto.content !== undefined) data.content = dto.content as any;
     if (dto.mainCategoryId !== undefined) data.mainCategoryId = nextMainCategoryId;
     if (dto.categoryIds !== undefined || status === "review") {
       const incomingCategoryIds = dto.categoryIds ?? existing.categories.map((c) => c.id);
@@ -672,7 +544,6 @@ export class ArticleService {
           id: true,
           title: true,
           description: true,
-          content: true,
           authorId: true,
           mainCategoryId: true,
           status: true,
@@ -690,11 +561,13 @@ export class ArticleService {
 
       return article;
     });
+    const content = await this.articleContentService.buildContentByArticleId(id);
 
     return UpdateArticleResponseSchema.parse({
       success: true,
       data: {
         ...updated,
+        content,
         categories: updated.categories.map((c) => c.id),
       },
     });
@@ -997,22 +870,6 @@ export class ArticleService {
   private toJsonNullable(value: unknown) {
     if (value === undefined) return null;
     return value as any;
-  }
-
-  private normalizeLayout(value: unknown, blockId: string) {
-    const fallback = { i: blockId, x: 0, y: 0, w: 2, h: 2 };
-    if (!value || typeof value !== "object" || Array.isArray(value)) return fallback;
-
-    const layout = value as Record<string, unknown>;
-    const asInt = (v: unknown, d: number) => (typeof v === "number" && Number.isInteger(v) ? v : d);
-
-    return {
-      i: typeof layout.i === "string" ? layout.i : blockId,
-      x: asInt(layout.x, 0),
-      y: asInt(layout.y, 0),
-      w: asInt(layout.w, 2),
-      h: asInt(layout.h, 2),
-    };
   }
 
 }

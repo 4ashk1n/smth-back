@@ -14,6 +14,7 @@ import type {
 } from "@smth/shared";
 import { AiSuggestionsResponseSchema } from "@smth/shared";
 import { ZodError } from "zod";
+import { ArticleContentService } from "../article/article-content.service";
 import { PrismaService } from "../prisma/prisma.service";
 
 @Injectable()
@@ -22,7 +23,10 @@ export class AiService {
   private static readonly DEFAULT_BASE_URL = "http://localhost:8000";
   private static readonly DEFAULT_TIMEOUT_MS = 60000;
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly articleContentService: ArticleContentService,
+  ) {}
 
   async getSuggestions(kind: AiSuggestionMode, userId: string, request: AiSuggestionRequest): Promise<AiSuggestionsResponse> {
     const article = await this.loadDraftForSuggestions(userId, request.draftId);
@@ -79,7 +83,6 @@ export class AiService {
         id: true,
         title: true,
         description: true,
-        content: true,
         authorId: true,
         mainCategoryId: true,
         status: true,
@@ -102,11 +105,13 @@ export class AiService {
       throw new BadRequestException("Suggestions are available only for draft articles");
     }
 
+    const content = await this.articleContentService.buildContentByArticleId(article.id);
+
     return {
       id: article.id,
       title: article.title,
       description: article.description,
-      content: article.content as AiSuggestionUpstreamRequest["content"],
+      content,
       authorId: article.authorId,
       mainCategoryId: article.mainCategoryId,
       categories: article.categories.map((category) => category.id),
