@@ -5,7 +5,7 @@ import {
   isSubscribedResponseSchema,
   SubscribeUserResponseSchema,
   UnsubscribeUserResponseSchema,
-  UpdateUserSchema,
+  UpdateUserProfileSchema,
   UserMetaSchema,
   UserFollowersResponseSchema,
   UserFollowingResponseSchema,
@@ -27,10 +27,11 @@ import {
   type UserRepostedArticlesResponse,
   type UserSavedArticlesResponse,
 } from "@smth/shared";
+import { Prisma } from "@prisma/client";
 import type { z } from "zod";
 import { PrismaService } from "../prisma/prisma.service";
 
-type UpdateDto = z.infer<typeof UpdateUserSchema>;
+type UpdateDto = z.infer<typeof UpdateUserProfileSchema>;
 type UserMetaResponse = { success: true; data: UserMeta };
 type UserMetaListResponse = { success: true; data: UserMeta[] };
 
@@ -75,7 +76,9 @@ export class UserService {
     };
   }
 
-  async update(id: string, dto: UpdateDto): Promise<UserMetaResponse> {
+  async update(currentUserId: string, id: string, dto: UpdateDto): Promise<UserMetaResponse> {
+    this.ensureSelf(currentUserId, id);
+
     const existing = await this.prisma.user.findUnique({
       where: { id },
       select: { id: true },
@@ -85,24 +88,32 @@ export class UserService {
     const data: Partial<UpdateDto> = {};
     if (dto.firstname !== undefined) data.firstname = dto.firstname;
     if (dto.lastname !== undefined) data.lastname = dto.lastname;
+    if (dto.username !== undefined) data.username = dto.username;
     if (dto.avatar !== undefined) data.avatar = dto.avatar;
 
-    const updated = await this.prisma.user.update({
-      where: { id },
-      data,
-      select: {
-        id: true,
-        username: true,
-        firstname: true,
-        lastname: true,
-        avatar: true,
-      },
-    });
+    try {
+      const updated = await this.prisma.user.update({
+        where: { id },
+        data,
+        select: {
+          id: true,
+          username: true,
+          firstname: true,
+          lastname: true,
+          avatar: true,
+        },
+      });
 
-    return {
-      success: true,
-      data: UserMetaSchema.parse(updated),
-    };
+      return {
+        success: true,
+        data: UserMetaSchema.parse(updated),
+      };
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+        throw new BadRequestException("Username is already taken");
+      }
+      throw error;
+    }
   }
 
   async subscribe(currentUserId: string, targetUserId: string): Promise<SubscribeUserResponse> {
