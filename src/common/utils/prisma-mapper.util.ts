@@ -2,13 +2,6 @@ import { Prisma } from '@prisma/client';
 
 type PrismaCategory = Prisma.CategoryGetPayload<object>;
 
-type PrismaArticleWithRelations = Prisma.ArticleGetPayload<{
-  include: {
-    categories: true;
-    mainCategory: true;
-  };
-}>;
-
 export class PrismaMapper {
   static toCategoryDTO(prismaCategory: PrismaCategory) {
     return {
@@ -22,33 +15,6 @@ export class PrismaMapper {
       },
       createdAt: (prismaCategory as any).createdAt,
       updatedAt: (prismaCategory as any).updatedAt,
-    };
-  }
-
-  static toArticleDTO(prismaArticle: PrismaArticleWithRelations) {
-    return {
-      id: prismaArticle.id,
-      title: prismaArticle.title,
-      description: prismaArticle.description,
-      content: prismaArticle.content as any,
-      authorId: prismaArticle.authorId,
-      mainCategoryId: prismaArticle.mainCategoryId,
-      status: prismaArticle.status,
-      publishedAt: prismaArticle.publishedAt,
-      createdAt: prismaArticle.createdAt,
-      updatedAt: prismaArticle.updatedAt,
-      categories: prismaArticle.categories.map((cat) => cat.id),
-    };
-  }
-
-  static toArticleMeta(prismaArticle: PrismaArticleWithRelations) {
-    return {
-      id: prismaArticle.id,
-      title: prismaArticle.title,
-      description: prismaArticle.description,
-      mainCategoryId: prismaArticle.mainCategoryId,
-      categories: prismaArticle.categories.map((cat) => cat.id),
-      status: prismaArticle.status,
     };
   }
 
