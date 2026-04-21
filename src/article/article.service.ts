@@ -1,5 +1,10 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
 import {
+  ArticleCommentListQuerySchema,
+  type ArticleCommentListResponse,
+  ArticleCommentListResponseSchema,
+  type ArticleCommentResponse,
+  ArticleCommentResponseSchema,
   ArticleContentResponse,
   ArticleContentResponseSchema,
   ArticleDTOSchema,
@@ -10,6 +15,10 @@ import {
   ArticleMetricsResponseSchema,
   ArticleResponseSchema,
   CreateEmptyDraftResponseSchema,
+  type CreateArticleComment,
+  CreateArticleCommentSchema,
+  type DeleteArticleCommentResponse,
+  DeleteArticleCommentResponseSchema,
   DislikeArticleResponseSchema,
   LikeArticleResponseSchema,
   UpdateArticleResponseSchema,
@@ -26,6 +35,7 @@ import { ArticleContentService } from "./article-content.service";
 
 type UpdateDto = z.infer<typeof UpdateArticleSchema>;
 type ListQuery = z.infer<typeof ArticleListQuerySchema>;
+type CommentListQuery = z.infer<typeof ArticleCommentListQuerySchema>;
 type DeleteArticleResponse = { success: true; data: { id: string } };
 
 @Injectable()
@@ -162,7 +172,7 @@ export class ArticleService {
   }
 
   async getMetricsById(id: string, userId: string | undefined): Promise<ArticleMetricsResponse> {
-    const { views, likes, saves, reposts, userMetric } = await this.prisma.$transaction(async (tx) => {
+    const { views, likes, saves, reposts, comments, userMetric } = await this.prisma.$transaction(async (tx) => {
       const article = await tx.article.findUnique({
         where: { id },
         select: { id: true },
@@ -181,6 +191,9 @@ export class ArticleService {
       const repostsPromise = tx.userArticleMetric.count({
         where: { articleId: id, reposted: true },
       });
+      const commentsPromise = tx.articleComment.count({
+        where: { articleId: id },
+      });
       const userMetricPromise = userId
         ? tx.userArticleMetric.findUnique({
           where: {
@@ -197,15 +210,16 @@ export class ArticleService {
         })
         : Promise.resolve(null);
 
-      const [views, likes, saves, reposts, userMetric] = await Promise.all([
+      const [views, likes, saves, reposts, comments, userMetric] = await Promise.all([
         viewsPromise,
         likesPromise,
         savesPromise,
         repostsPromise,
+        commentsPromise,
         userMetricPromise,
       ]);
 
-      return { views, likes, saves, reposts, userMetric };
+      return { views, likes, saves, reposts, comments, userMetric };
     });
 
     return ArticleMetricsResponseSchema.parse({
@@ -215,11 +229,121 @@ export class ArticleService {
         likes,
         saves,
         reposts,
-        comments: 0,
+        comments,
         liked: userMetric?.liked ?? false,
         saved: userMetric?.saved ?? false,
         reposted: userMetric?.reposted ?? false,
       },
+    });
+  }
+
+  async listComments(articleId: string, query: CommentListQuery): Promise<ArticleCommentListResponse> {
+    await this.ensureArticleExists(articleId);
+    const parsedQuery = ArticleCommentListQuerySchema.parse(query);
+    const { page, limit } = parsedQuery;
+    const skip = (page - 1) * limit;
+
+    const [total, rows] = await Promise.all([
+      this.prisma.articleComment.count({
+        where: { articleId },
+      }),
+      this.prisma.articleComment.findMany({
+        where: { articleId },
+        skip,
+        take: limit,
+        orderBy: { createdAt: "desc" },
+        select: {
+          id: true,
+          articleId: true,
+          authorId: true,
+          text: true,
+          createdAt: true,
+          updatedAt: true,
+          author: {
+            select: {
+              id: true,
+              username: true,
+              firstname: true,
+              lastname: true,
+              avatar: true,
+            },
+          },
+        },
+      }),
+    ]);
+
+    return ArticleCommentListResponseSchema.parse({
+      success: true,
+      data: {
+        items: rows,
+        total,
+        page,
+        limit,
+        hasMore: skip + rows.length < total,
+      },
+    });
+  }
+
+  async createComment(articleId: string, userId: string, dto: CreateArticleComment): Promise<ArticleCommentResponse> {
+    await this.ensureArticleExists(articleId);
+    const payload = CreateArticleCommentSchema.parse(dto);
+
+    const created = await this.prisma.articleComment.create({
+      data: {
+        articleId,
+        authorId: userId,
+        text: payload.text,
+      },
+      select: {
+        id: true,
+        articleId: true,
+        authorId: true,
+        text: true,
+        createdAt: true,
+        updatedAt: true,
+        author: {
+          select: {
+            id: true,
+            username: true,
+            firstname: true,
+            lastname: true,
+            avatar: true,
+          },
+        },
+      },
+    });
+
+    return ArticleCommentResponseSchema.parse({
+      success: true,
+      data: created,
+    });
+  }
+
+  async deleteComment(articleId: string, commentId: string, userId: string): Promise<DeleteArticleCommentResponse> {
+    const existing = await this.prisma.articleComment.findUnique({
+      where: { id: commentId },
+      select: {
+        id: true,
+        articleId: true,
+        authorId: true,
+      },
+    });
+
+    if (!existing || existing.articleId !== articleId) {
+      throw new NotFoundException("Comment not found");
+    }
+
+    if (existing.authorId !== userId) {
+      throw new ForbiddenException("You can delete only your own comment");
+    }
+
+    await this.prisma.articleComment.delete({
+      where: { id: commentId },
+    });
+
+    return DeleteArticleCommentResponseSchema.parse({
+      success: true,
+      data: { id: commentId },
     });
   }
 
