@@ -10,7 +10,7 @@ import {
   IsSubscribedResponse,
   type SubscribeUserResponse,
   type UnsubscribeUserResponse,
-  UpdateUserSchema,
+  UpdateUserProfileSchema,
   type UserLikedArticlesResponse,
   type UserMeta,
   UserMetricsResponse,
@@ -24,7 +24,7 @@ import { z } from "zod";
 import { ZodValidationPipe } from "../common/pipes/zod-validation.pipe";
 import { UserService } from "./user.service";
 
-type UpdateDto = z.infer<typeof UpdateUserSchema>;
+type UpdateDto = z.infer<typeof UpdateUserProfileSchema>;
 type UserMetaResponse = { success: true; data: UserMeta };
 type UserMetaListResponse = { success: true; data: UserMeta[] };
 type RequestWithUser = ExpressRequest & {
@@ -55,14 +55,18 @@ export class UserController {
   }
 
   @Patch(":id")
+  @UseGuards(AuthGuard("jwt"))
   @ApiParam({ name: "id", type: String })
-  @ApiBody({ description: "UpdateUserSchema from @smth/shared" })
-  @ApiOkResponse({ description: "UpdateUserResponse from @smth/shared" })
+  @ApiBody({ description: "UpdateUserProfileSchema from @smth/shared" })
+  @ApiOkResponse({ description: "UpdateUserProfileResponse from @smth/shared" })
   update(
     @Param("id") id: string,
-    @Body(new ZodValidationPipe(asZodType(UpdateUserSchema))) dto: UpdateDto,
+    @Request() req: RequestWithUser,
+    @Body(new ZodValidationPipe(asZodType(UpdateUserProfileSchema))) dto: UpdateDto,
   ): Promise<UserMetaResponse> {
-    return this.userService.update(id, dto);
+    const currentUserId = req.user?.id;
+    if (!currentUserId) throw new UnauthorizedException("Unauthorized");
+    return this.userService.update(currentUserId, id, dto);
   }
 
   @Post(":id/subscribe")
