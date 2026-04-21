@@ -2,13 +2,19 @@ import { Body, Controller, Delete, Get, Param, Post, Query, Request, Unauthorize
 import { AuthGuard } from "@nestjs/passport";
 import { ApiBody, ApiCreatedResponse, ApiOkResponse, ApiParam, ApiQuery, ApiTags } from "@nestjs/swagger";
 import {
+  ArticleCommentListQuerySchema,
+  type ArticleCommentListResponse,
+  type ArticleCommentResponse,
   ArticleContentResponse,
   ArticleListQuerySchema,
   type ArticleListResponse,
   ArticleMetricsResponse,
+  type CreateArticleComment,
+  CreateArticleCommentSchema,
   type ArticleResponse,
   type CreateEmptyDraft,
   type CreateEmptyDraftResponse,
+  type DeleteArticleCommentResponse,
   CreateEmptyDraftSchema,
   type DislikeArticleResponse,
   type LikeArticleResponse,
@@ -22,6 +28,8 @@ import { OptionalJwtAuthGuard } from "../auth/optional-jwt-auth.guard";
 import { ArticleService } from "./article.service";
 
 type ListQuery = z.infer<typeof ArticleListQuerySchema>;
+type CommentListQuery = z.infer<typeof ArticleCommentListQuerySchema>;
+type CreateCommentDto = z.infer<typeof CreateArticleCommentSchema>;
 type CreateEmptyDraftDto = z.infer<typeof CreateEmptyDraftSchema>;
 type UpdateDto = z.infer<typeof UpdateArticleSchema>;
 type RequestWithUser = ExpressRequest & {
@@ -84,6 +92,48 @@ export class ArticleController {
   @ApiOkResponse({ description: "ArticleMetricsResponse from @smth/shared" })
   getMetricsById(@Param("id") id: string, @Request() req: RequestWithUser): Promise<ArticleMetricsResponse> {
     return this.articleService.getMetricsById(id, req.user?.id);
+  }
+
+  @Get(":id/comments")
+  @ApiParam({ name: "id", type: String })
+  @ApiQuery({ name: "page", required: false, type: Number })
+  @ApiQuery({ name: "limit", required: false, type: Number })
+  @ApiOkResponse({ description: "ArticleCommentListResponse from @smth/shared" })
+  listComments(
+    @Param("id") id: string,
+    @Query(new ZodValidationPipe(asZodType(ArticleCommentListQuerySchema))) query: CommentListQuery,
+  ): Promise<ArticleCommentListResponse> {
+    return this.articleService.listComments(id, query);
+  }
+
+  @Post(":id/comments")
+  @UseGuards(AuthGuard("jwt"))
+  @ApiParam({ name: "id", type: String })
+  @ApiBody({ description: "CreateArticleCommentSchema from @smth/shared" })
+  @ApiOkResponse({ description: "ArticleCommentResponse from @smth/shared" })
+  createComment(
+    @Param("id") id: string,
+    @Body(new ZodValidationPipe(asZodType(CreateArticleCommentSchema))) dto: CreateCommentDto,
+    @Request() req: RequestWithUser,
+  ): Promise<ArticleCommentResponse> {
+    const userId = req.user?.id;
+    if (!userId) throw new UnauthorizedException("Unauthorized");
+    return this.articleService.createComment(id, userId, dto as CreateArticleComment);
+  }
+
+  @Delete(":id/comments/:commentId")
+  @UseGuards(AuthGuard("jwt"))
+  @ApiParam({ name: "id", type: String })
+  @ApiParam({ name: "commentId", type: String })
+  @ApiOkResponse({ description: "DeleteArticleCommentResponse from @smth/shared" })
+  deleteComment(
+    @Param("id") id: string,
+    @Param("commentId") commentId: string,
+    @Request() req: RequestWithUser,
+  ): Promise<DeleteArticleCommentResponse> {
+    const userId = req.user?.id;
+    if (!userId) throw new UnauthorizedException("Unauthorized");
+    return this.articleService.deleteComment(id, commentId, userId);
   }
 
   @Post(":id/draft")
