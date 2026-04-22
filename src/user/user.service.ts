@@ -29,6 +29,7 @@ import {
 } from "@smth/shared";
 import { Prisma } from "@prisma/client";
 import type { z } from "zod";
+import { NotificationService } from "../notification/notification.service";
 import { PrismaService } from "../prisma/prisma.service";
 
 type UpdateDto = z.infer<typeof UpdateUserProfileSchema>;
@@ -37,7 +38,10 @@ type UserMetaListResponse = { success: true; data: UserMeta[] };
 
 @Injectable()
 export class UserService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly notificationService: NotificationService,
+  ) {}
 
   async list(): Promise<UserMetaListResponse> {
     const rows = await this.prisma.user.findMany({
@@ -150,6 +154,12 @@ export class UserService {
         followingId: true,
         createdAt: true,
       },
+    });
+    await this.notificationService.createNotification({
+      type: "subscribe",
+      recipientUserId: targetUserId,
+      actorUserId: currentUserId,
+      payload: {},
     });
 
     return SubscribeUserResponseSchema.parse({ success: true, data: row });

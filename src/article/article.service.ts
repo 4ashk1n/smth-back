@@ -30,6 +30,7 @@ import {
 } from "@smth/shared";
 import type { z } from "zod";
 import { INTERNAL_DRAFT_CATEGORY_NAME } from "../common/constants/internal-category.constants";
+import { NotificationService } from "../notification/notification.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { ArticleContentService } from "./article-content.service";
 
@@ -46,6 +47,7 @@ export class ArticleService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly articleContentService: ArticleContentService,
+    private readonly notificationService: NotificationService,
   ) { }
 
   async list(query: ListQuery): Promise<ArticleListResponse> {
@@ -285,7 +287,16 @@ export class ArticleService {
   }
 
   async createComment(articleId: string, userId: string, dto: CreateArticleComment): Promise<ArticleCommentResponse> {
-    await this.ensureArticleExists(articleId);
+    const article = await this.prisma.article.findUnique({
+      where: { id: articleId },
+      select: {
+        id: true,
+        authorId: true,
+        title: true,
+      },
+    });
+    if (!article) throw new NotFoundException("Article not found");
+
     const payload = CreateArticleCommentSchema.parse(dto);
 
     const created = await this.prisma.articleComment.create({
@@ -310,6 +321,17 @@ export class ArticleService {
             avatar: true,
           },
         },
+      },
+    });
+    await this.notificationService.createNotification({
+      type: "comment",
+      recipientUserId: article.authorId,
+      actorUserId: userId,
+      payload: {
+        articleId: article.id,
+        articleTitle: article.title,
+        commentId: created.id,
+        commentText: created.text,
       },
     });
 
@@ -472,41 +494,79 @@ export class ArticleService {
   }
 
   private async setReaction(articleId: string, userId: string, reaction: "like" | "dislike") {
-    await this.ensureArticleExists(articleId);
-
     const liked = reaction === "like";
     const disliked = reaction === "dislike";
+    const { metric, articleAuthorId, articleTitle, shouldNotifyLike } = await this.prisma.$transaction(async (tx) => {
+      const article = await tx.article.findUnique({
+        where: { id: articleId },
+        select: {
+          id: true,
+          authorId: true,
+          title: true,
+        },
+      });
+      if (!article) throw new NotFoundException("Article not found");
 
-    const metric = await this.prisma.userArticleMetric.upsert({
-      where: {
-        userId_articleId: {
+      const existingMetric = await tx.userArticleMetric.findUnique({
+        where: {
+          userId_articleId: {
+            userId,
+            articleId,
+          },
+        },
+        select: { liked: true },
+      });
+
+      const metric = await tx.userArticleMetric.upsert({
+        where: {
+          userId_articleId: {
+            userId,
+            articleId,
+          },
+        },
+        update: {
+          liked,
+          disliked,
+          updatedAt: new Date(),
+        },
+        create: {
           userId,
           articleId,
+          focusTime: 0,
+          viewedPages: 0,
+          liked,
+          disliked,
+          saved: false,
+          subscribed: false,
+          reposted: false,
+          updatedAt: new Date(),
         },
-      },
-      update: {
-        liked,
-        disliked,
-        updatedAt: new Date(),
-      },
-      create: {
-        userId,
-        articleId,
-        focusTime: 0,
-        viewedPages: 0,
-        liked,
-        disliked,
-        saved: false,
-        subscribed: false,
-        reposted: false,
-        updatedAt: new Date(),
-      },
-      select: {
-        articleId: true,
-        liked: true,
-        disliked: true,
-      },
+        select: {
+          articleId: true,
+          liked: true,
+          disliked: true,
+        },
+      });
+
+      return {
+        metric,
+        articleAuthorId: article.authorId,
+        articleTitle: article.title,
+        shouldNotifyLike: reaction === "like" && !existingMetric?.liked && metric.liked,
+      };
     });
+
+    if (shouldNotifyLike) {
+      await this.notificationService.createNotification({
+        type: "like",
+        recipientUserId: articleAuthorId,
+        actorUserId: userId,
+        payload: {
+          articleId,
+          articleTitle,
+        },
+      });
+    }
 
     const payload = { success: true, data: metric };
     return reaction === "like"
@@ -618,6 +678,7 @@ export class ArticleService {
       select: {
         id: true,
         authorId: true,
+        status: true,
         title: true,
         mainCategoryId: true,
         categories: { select: { id: true } },
@@ -685,6 +746,20 @@ export class ArticleService {
 
       return article;
     });
+    if (existing.status !== status) {
+      await this.notificationService.createNotification({
+        type: "article_status",
+        recipientUserId: authorId,
+        actorUserId: null,
+        payload: {
+          articleId: updated.id,
+          articleTitle: updated.title,
+          fromStatus: existing.status,
+          toStatus: status,
+        },
+      });
+    }
+
     const content = await this.articleContentService.buildContentByArticleId(id);
 
     return UpdateArticleResponseSchema.parse({

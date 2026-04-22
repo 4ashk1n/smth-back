@@ -23,6 +23,8 @@ model User {
   articles         Article[]
   articleMetrics   UserArticleMetric[]
   comments         ArticleComment[]
+  notifications    Notification[]      @relation("NotificationRecipient")
+  notificationsBy  Notification[]      @relation("NotificationActor")
   feed             UserFeed[]
   following        UserSubscription[]  @relation("UserFollowing")
   followers        UserSubscription[]  @relation("UserFollowers")
@@ -91,6 +93,13 @@ enum UserRole {
   user
   moderator
   admin
+}
+
+enum NotificationType {
+  like
+  subscribe
+  comment
+  article_status
 }
 
 model Topic {
@@ -199,4 +208,21 @@ model UserFeed {
   @@unique([userId, position])
   @@index([userId, articleId])
   @@map("user_feed")
+}
+
+model Notification {
+  id              String           @id @default(uuid())
+  type            NotificationType
+  recipientUserId String
+  actorUserId     String?
+  payload         Json
+  createdAt       DateTime         @default(now())
+  readAt          DateTime?
+  recipient       User             @relation("NotificationRecipient", fields: [recipientUserId], references: [id], onDelete: Cascade)
+  actor           User?            @relation("NotificationActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([recipientUserId, createdAt])
+  @@index([recipientUserId, readAt])
+  @@index([actorUserId])
+  @@map("notifications")
 }
