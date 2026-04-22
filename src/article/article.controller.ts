@@ -6,6 +6,9 @@ import {
   ArticleListQuerySchema,
   type ArticleListResponse,
   ArticleMetricsResponse,
+  UpdateArticleReadMetricsSchema,
+  type UpdateArticleReadMetrics,
+  type UpdateArticleReadMetricsResponse,
   type ArticleResponse,
   type CreateEmptyDraft,
   type CreateEmptyDraftResponse,
@@ -24,6 +27,7 @@ import { ArticleService } from "./article.service";
 type ListQuery = z.infer<typeof ArticleListQuerySchema>;
 type CreateEmptyDraftDto = z.infer<typeof CreateEmptyDraftSchema>;
 type UpdateDto = z.infer<typeof UpdateArticleSchema>;
+type ReadMetricsDto = z.infer<typeof UpdateArticleReadMetricsSchema>;
 type RequestWithUser = ExpressRequest & {
   user?: {
     id: string;
@@ -84,6 +88,21 @@ export class ArticleController {
   @ApiOkResponse({ description: "ArticleMetricsResponse from @smth/shared" })
   getMetricsById(@Param("id") id: string, @Request() req: RequestWithUser): Promise<ArticleMetricsResponse> {
     return this.articleService.getMetricsById(id, req.user?.id);
+  }
+
+  @Post(":id/metrics/read")
+  @UseGuards(AuthGuard("jwt"))
+  @ApiParam({ name: "id", type: String })
+  @ApiBody({ description: "UpdateArticleReadMetricsSchema from @smth/shared" })
+  @ApiOkResponse({ description: "UpdateArticleReadMetricsResponse from @smth/shared" })
+  reportReadMetrics(
+    @Param("id") id: string,
+    @Body(new ZodValidationPipe(asZodType(UpdateArticleReadMetricsSchema))) dto: ReadMetricsDto,
+    @Request() req: RequestWithUser,
+  ): Promise<UpdateArticleReadMetricsResponse> {
+    const userId = req.user?.id;
+    if (!userId) throw new UnauthorizedException("Unauthorized");
+    return this.articleService.reportReadMetrics(id, userId, dto as UpdateArticleReadMetrics);
   }
 
   @Post(":id/draft")

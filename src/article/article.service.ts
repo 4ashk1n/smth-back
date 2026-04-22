@@ -8,6 +8,9 @@ import {
   ArticleMetaSchema,
   ArticleMetricsResponse,
   ArticleMetricsResponseSchema,
+  UpdateArticleReadMetricsResponseSchema,
+  type UpdateArticleReadMetrics,
+  type UpdateArticleReadMetricsResponse,
   ArticleResponseSchema,
   CreateEmptyDraftResponseSchema,
   DislikeArticleResponseSchema,
@@ -219,6 +222,79 @@ export class ArticleService {
         liked: userMetric?.liked ?? false,
         saved: userMetric?.saved ?? false,
         reposted: userMetric?.reposted ?? false,
+      },
+    });
+  }
+
+  async reportReadMetrics(articleId: string, userId: string, dto: UpdateArticleReadMetrics): Promise<UpdateArticleReadMetricsResponse> {
+    await this.prisma.$transaction(async (tx) => {
+      const article = await tx.article.findUnique({
+        where: { id: articleId },
+        select: { id: true },
+      });
+      if (!article) throw new NotFoundException("Article not found");
+
+      const existing = await tx.userArticleMetric.findUnique({
+        where: {
+          userId_articleId: {
+            userId,
+            articleId,
+          },
+        },
+        select: {
+          firstViewedAt: true,
+          lastViewedAt: true,
+        },
+      });
+
+      const focusTimeDelta = dto.focusTimeDelta ?? 0;
+      const viewedPagesDelta = dto.viewedPagesDelta ?? 0;
+      const firstViewedAt = this.toDateNullable(dto.firstViewedAt);
+      const lastViewedAt = this.toDateNullable(dto.lastViewedAt);
+      const nextFirstViewedAt = this.minDateNullable(existing?.firstViewedAt ?? null, firstViewedAt);
+      const nextLastViewedAt = this.maxDateNullable(existing?.lastViewedAt ?? null, lastViewedAt);
+
+      if (existing) {
+        await tx.userArticleMetric.update({
+          where: {
+            userId_articleId: {
+              userId,
+              articleId,
+            },
+          },
+          data: {
+            ...(focusTimeDelta > 0 ? { focusTime: { increment: focusTimeDelta } } : {}),
+            ...(viewedPagesDelta > 0 ? { viewedPages: { increment: viewedPagesDelta } } : {}),
+            firstViewedAt: nextFirstViewedAt,
+            lastViewedAt: nextLastViewedAt,
+            updatedAt: new Date(),
+          },
+        });
+        return;
+      }
+
+      await tx.userArticleMetric.create({
+        data: {
+          userId,
+          articleId,
+          focusTime: focusTimeDelta,
+          viewedPages: viewedPagesDelta,
+          liked: false,
+          saved: false,
+          disliked: false,
+          subscribed: false,
+          reposted: false,
+          firstViewedAt: nextFirstViewedAt,
+          lastViewedAt: nextLastViewedAt,
+          updatedAt: new Date(),
+        },
+      });
+    });
+
+    return UpdateArticleReadMetricsResponseSchema.parse({
+      success: true,
+      data: {
+        articleId,
       },
     });
   }
@@ -870,6 +946,28 @@ export class ArticleService {
   private toJsonNullable(value: unknown) {
     if (value === undefined) return null;
     return value as any;
+  }
+
+  private toDateNullable(value: unknown): Date | null {
+    if (!value) return null;
+    if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value;
+    if (typeof value === "string") {
+      const parsed = new Date(value);
+      return Number.isNaN(parsed.getTime()) ? null : parsed;
+    }
+    return null;
+  }
+
+  private minDateNullable(left: Date | null, right: Date | null): Date | null {
+    if (!left) return right;
+    if (!right) return left;
+    return left.getTime() <= right.getTime() ? left : right;
+  }
+
+  private maxDateNullable(left: Date | null, right: Date | null): Date | null {
+    if (!left) return right;
+    if (!right) return left;
+    return left.getTime() >= right.getTime() ? left : right;
   }
 
 }
