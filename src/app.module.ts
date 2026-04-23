@@ -9,9 +9,10 @@ import { AuthModule } from './auth/auth.module';
 import { SearchModule } from './search/search.module';
 import { AiModule } from './ai/ai.module';
 import { StorageModule } from './storage/storage.module';
+import { AdminModule } from './admin/admin.module';
 
 @Module({
-  imports: [PrismaModule, ArticleModule, CategoryModule, UserModule, AuthModule, SearchModule, AiModule, StorageModule],
+  imports: [PrismaModule, ArticleModule, CategoryModule, UserModule, AuthModule, SearchModule, AiModule, StorageModule, AdminModule],
   controllers: [AppController],
   providers: [AppService],
 })
