@@ -8,6 +8,7 @@ import {
   ArticleContentResponse,
   ArticleContentResponseSchema,
   ArticleDTOSchema,
+  AiSuggestionsResponseSchema,
   ArticleListQuerySchema,
   ArticleListResponseSchema,
   ArticleMetaSchema,
@@ -27,6 +28,7 @@ import {
   type ArticleResponse,
   type CreateEmptyDraftResponse,
   type UpdateArticleResponse,
+  type AiSuggestionsResponse,
 } from "@smth/shared";
 import type { z } from "zod";
 import { INTERNAL_DRAFT_CATEGORY_NAME } from "../common/constants/internal-category.constants";
@@ -236,6 +238,48 @@ export class ArticleService {
         saved: userMetric?.saved ?? false,
         reposted: userMetric?.reposted ?? false,
       },
+    });
+  }
+
+  async getReviewRemarksAsSuggestions(
+    articleId: string,
+    userId: string,
+    role: "user" | "moderator" | "admin" | undefined,
+  ): Promise<AiSuggestionsResponse> {
+    await this.ensureCanAccessReviewRemarks(articleId, userId, role);
+    const prisma: any = this.prisma;
+
+    const rows = await prisma.articleBlockRemark.findMany({
+      where: { articleId },
+      orderBy: [{ updatedAt: "desc" }, { createdAt: "desc" }],
+      select: {
+        id: true,
+        articleId: true,
+        blockId: true,
+        authorId: true,
+        text: true,
+        updatedAt: true,
+      },
+    });
+
+    return AiSuggestionsResponseSchema.parse({
+      suggestions: rows.map((row) => ({
+        suggestionId: row.id,
+        articleId: row.articleId,
+        topicId: null,
+        pageId: null,
+        blockId: row.blockId,
+        scope: "block",
+        category: "moderation",
+        severity: "warning",
+        message: row.text,
+        proposedFix: null,
+        meta: {
+          source: "moderation-remark",
+          authorId: row.authorId,
+          updatedAt: row.updatedAt,
+        },
+      })),
     });
   }
 
@@ -665,6 +709,23 @@ export class ArticleService {
       select: { id: true },
     });
     if (!article) throw new NotFoundException("Article not found");
+  }
+
+  private async ensureCanAccessReviewRemarks(
+    articleId: string,
+    userId: string,
+    role: "user" | "moderator" | "admin" | undefined,
+  ) {
+    const article = await this.prisma.article.findUnique({
+      where: { id: articleId },
+      select: { id: true, authorId: true },
+    });
+    if (!article) throw new NotFoundException("Article not found");
+
+    const elevated = role === "admin" || role === "moderator";
+    if (!elevated && article.authorId !== userId) {
+      throw new ForbiddenException("Access denied");
+    }
   }
 
   private async updateDraftStatusById(
