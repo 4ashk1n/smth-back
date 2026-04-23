@@ -78,7 +78,7 @@ export class NotificationService {
   }
 
   async unreadCountForUser(userId: string): Promise<UnreadNotificationsCountResponse> {
-    const unread = await this.prisma.notification.count({
+    const count = await this.prisma.notification.count({
       where: {
         recipientUserId: userId,
         readAt: null,
@@ -87,7 +87,7 @@ export class NotificationService {
 
     return UnreadNotificationsCountResponseSchema.parse({
       success: true,
-      data: { unread },
+      data: { count },
     });
   }
 
@@ -101,14 +101,21 @@ export class NotificationService {
       throw new NotFoundException("Notification not found");
     }
 
-    await this.prisma.notification.update({
+    const updated = await this.prisma.notification.update({
       where: { id: notificationId },
       data: { readAt: new Date() },
+      select: {
+        id: true,
+        readAt: true,
+      },
     });
 
     return MarkNotificationReadResponseSchema.parse({
       success: true,
-      data: { id: notificationId },
+      data: {
+        id: updated.id,
+        readAt: updated.readAt,
+      },
     });
   }
 
@@ -125,13 +132,13 @@ export class NotificationService {
 
     return MarkAllNotificationsReadResponseSchema.parse({
       success: true,
-      data: { updated: updated.count },
+      data: { count: updated.count },
     });
   }
 
   async createNotification(input: CreateNotificationInput): Promise<void> {
     const { type, recipientUserId, actorUserId, payload } = input;
-    if (actorUserId && actorUserId === recipientUserId) {
+    if (type !== "article_status" && actorUserId && actorUserId === recipientUserId) {
       return;
     }
 

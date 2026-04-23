@@ -19,6 +19,7 @@ import {
   type ReviewRemarkUpsert,
 } from "@smth/shared";
 import type { z } from "zod";
+import { NotificationService } from "../notification/notification.service";
 import { PrismaService } from "../prisma/prisma.service";
 
 type ReviewArticleListQuery = z.infer<typeof AdminReviewArticleListQuerySchema>;
@@ -27,7 +28,10 @@ type UserArticleListQuery = z.infer<typeof AdminUserArticleListQuerySchema>;
 
 @Injectable()
 export class AdminService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly notificationService: NotificationService,
+  ) {}
 
   async listReviewArticles(query: ReviewArticleListQuery): Promise<AdminReviewArticleListResponse> {
     const parsedQuery = AdminReviewArticleListQuerySchema.parse(query);
@@ -83,7 +87,7 @@ export class AdminService {
     });
   }
 
-  async approveArticle(articleId: string): Promise<AdminModerateArticleResponse> {
+  async approveArticle(articleId: string, actorUserId: string): Promise<AdminModerateArticleResponse> {
     const existing = await this.prisma.article.findUnique({
       where: { id: articleId },
       select: { id: true, status: true },
@@ -113,13 +117,25 @@ export class AdminService {
       },
     });
 
+    await this.notificationService.createNotification({
+      type: "article_status",
+      recipientUserId: updated.authorId,
+      actorUserId,
+      payload: {
+        articleId: updated.id,
+        articleTitle: updated.title,
+        fromStatus: existing.status,
+        toStatus: updated.status,
+      },
+    });
+
     return AdminModerateArticleResponseSchema.parse({
       success: true,
       data: this.toArticleMeta(updated),
     });
   }
 
-  async rejectArticle(articleId: string): Promise<AdminModerateArticleResponse> {
+  async rejectArticle(articleId: string, actorUserId: string): Promise<AdminModerateArticleResponse> {
     const existing = await this.prisma.article.findUnique({
       where: { id: articleId },
       select: { id: true, status: true },
@@ -146,6 +162,18 @@ export class AdminService {
         createdAt: true,
         updatedAt: true,
         categories: { select: { id: true } },
+      },
+    });
+
+    await this.notificationService.createNotification({
+      type: "article_status",
+      recipientUserId: updated.authorId,
+      actorUserId,
+      payload: {
+        articleId: updated.id,
+        articleTitle: updated.title,
+        fromStatus: existing.status,
+        toStatus: updated.status,
       },
     });
 

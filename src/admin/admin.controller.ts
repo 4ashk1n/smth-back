@@ -55,15 +55,25 @@ export class AdminController {
   @Post("articles/:id/approve")
   @ApiParam({ name: "id", type: String })
   @ApiOkResponse({ description: "AdminModerateArticleResponse from @smth/shared" })
-  approveArticle(@Param("id") id: string): Promise<AdminModerateArticleResponse> {
-    return this.adminService.approveArticle(id);
+  approveArticle(
+    @Param("id") id: string,
+    @Request() req: RequestWithUser,
+  ): Promise<AdminModerateArticleResponse> {
+    const userId = req.user?.id;
+    if (!userId) throw new UnauthorizedException("Unauthorized");
+    return this.adminService.approveArticle(id, userId);
   }
 
   @Post("articles/:id/reject")
   @ApiParam({ name: "id", type: String })
   @ApiOkResponse({ description: "AdminModerateArticleResponse from @smth/shared" })
-  rejectArticle(@Param("id") id: string): Promise<AdminModerateArticleResponse> {
-    return this.adminService.rejectArticle(id);
+  rejectArticle(
+    @Param("id") id: string,
+    @Request() req: RequestWithUser,
+  ): Promise<AdminModerateArticleResponse> {
+    const userId = req.user?.id;
+    if (!userId) throw new UnauthorizedException("Unauthorized");
+    return this.adminService.rejectArticle(id, userId);
   }
 
   @Get("users")

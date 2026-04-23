@@ -807,20 +807,6 @@ export class ArticleService {
 
       return article;
     });
-    if (existing.status !== status) {
-      await this.notificationService.createNotification({
-        type: "article_status",
-        recipientUserId: authorId,
-        actorUserId: null,
-        payload: {
-          articleId: updated.id,
-          articleTitle: updated.title,
-          fromStatus: existing.status,
-          toStatus: status,
-        },
-      });
-    }
-
     const content = await this.articleContentService.buildContentByArticleId(id);
 
     return UpdateArticleResponseSchema.parse({
