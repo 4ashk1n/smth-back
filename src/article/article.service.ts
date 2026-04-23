@@ -226,6 +226,163 @@ export class ArticleService {
     });
   }
 
+  async getFeed(query: ListQuery, userId: string): Promise<ArticleListResponse> {
+    const feedQuery: ListQuery = {
+      ...query,
+      status: "published",
+      mainCategoryId: undefined,
+      authorId: undefined,
+      search: undefined,
+    };
+
+    return this.listPersonalizedFeed(feedQuery, userId);
+  }
+
+  private async listPersonalizedFeed(query: ListQuery, userId: string): Promise<ArticleListResponse> {
+    const { page, limit } = query;
+    const skip = (page - 1) * limit;
+
+    const feedArticleIdsRows = await this.prisma.userFeed.findMany({
+      where: {
+        userId,
+        article: {
+          status: "published",
+        },
+      },
+      orderBy: { position: "asc" },
+      select: {
+        articleId: true,
+      },
+    });
+    const feedArticleIds = Array.from(new Set(feedArticleIdsRows.map((row) => row.articleId)));
+
+    const [recommendedCount, unreadCount] = await Promise.all([
+      this.prisma.userFeed.count({
+        where: {
+          userId,
+          article: {
+            status: "published",
+          },
+        },
+      }),
+      this.prisma.article.count({
+        where: {
+          status: "published",
+          ...(feedArticleIds.length > 0 ? { id: { notIn: feedArticleIds } } : {}),
+          userMetrics: {
+            none: {
+              userId,
+            },
+          },
+        },
+      }),
+    ]);
+
+    const recSkip = Math.min(skip, recommendedCount);
+    const recTake = Math.max(0, Math.min(limit, recommendedCount - recSkip));
+    const unreadSkip = Math.max(0, skip - recommendedCount);
+    const unreadTake = Math.max(0, limit - recTake);
+
+    const [recommendedRows, unreadRows] = await Promise.all([
+      recTake > 0
+        ? this.prisma.userFeed.findMany({
+          where: {
+            userId,
+            article: {
+              status: "published",
+            },
+          },
+          orderBy: { position: "asc" },
+          skip: recSkip,
+          take: recTake,
+          select: {
+            article: {
+              select: {
+                id: true,
+                title: true,
+                description: true,
+                authorId: true,
+                status: true,
+                mainCategoryId: true,
+                publishedAt: true,
+                createdAt: true,
+                updatedAt: true,
+                categories: { select: { id: true } },
+              },
+            },
+          },
+        })
+        : Promise.resolve([]),
+      unreadTake > 0
+        ? this.prisma.article.findMany({
+          where: {
+            status: "published",
+            ...(feedArticleIds.length > 0 ? { id: { notIn: feedArticleIds } } : {}),
+            userMetrics: {
+              none: {
+                userId,
+              },
+            },
+          },
+          orderBy: [{ publishedAt: "desc" }, { createdAt: "desc" }],
+          skip: unreadSkip,
+          take: unreadTake,
+          select: {
+            id: true,
+            title: true,
+            description: true,
+            authorId: true,
+            status: true,
+            mainCategoryId: true,
+            publishedAt: true,
+            createdAt: true,
+            updatedAt: true,
+            categories: { select: { id: true } },
+          },
+        })
+        : Promise.resolve([]),
+    ]);
+
+    const recommendedItems = recommendedRows.map((row) => ({
+      id: row.article.id,
+      title: row.article.title,
+      description: row.article.description,
+      authorId: row.article.authorId,
+      mainCategoryId: row.article.mainCategoryId,
+      categories: row.article.categories.map((c) => c.id),
+      status: row.article.status,
+      publishedAt: row.article.publishedAt,
+      createdAt: row.article.createdAt,
+      updatedAt: row.article.updatedAt,
+    }));
+    const unreadItems = unreadRows.map((a) => ({
+      id: a.id,
+      title: a.title,
+      description: a.description,
+      authorId: a.authorId,
+      mainCategoryId: a.mainCategoryId,
+      categories: a.categories.map((c) => c.id),
+      status: a.status,
+      publishedAt: a.publishedAt,
+      createdAt: a.createdAt,
+      updatedAt: a.updatedAt,
+    }));
+
+    const parsed = ArticleMetaSchema.array().parse([...recommendedItems, ...unreadItems]);
+    const total = recommendedCount + unreadCount;
+
+    return ArticleListResponseSchema.parse({
+      success: true,
+      data: {
+        items: parsed,
+        total,
+        page,
+        limit,
+        hasMore: skip + parsed.length < total,
+      },
+    });
+  }
+
   async reportReadMetrics(articleId: string, userId: string, dto: UpdateArticleReadMetrics): Promise<UpdateArticleReadMetricsResponse> {
     await this.prisma.$transaction(async (tx) => {
       const article = await tx.article.findUnique({

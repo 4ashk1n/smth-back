@@ -53,6 +53,24 @@ export class ArticleController {
     return this.articleService.list(query);
   }
 
+  @Get("feed")
+  @UseGuards(AuthGuard("jwt"))
+  @ApiQuery({ name: "page", required: false, type: Number })
+  @ApiQuery({ name: "limit", required: false, type: Number })
+  @ApiQuery({ name: "status", required: false, enum: ["published", "draft", "archived", "review"] })
+  @ApiQuery({ name: "mainCategoryId", required: false, type: String })
+  @ApiQuery({ name: "authorId", required: false, type: String })
+  @ApiQuery({ name: "search", required: false, type: String })
+  @ApiOkResponse({ description: "ArticleListResponse from @smth/shared" })
+  feed(
+    @Query(new ZodValidationPipe(asZodType(ArticleListQuerySchema))) query: ListQuery,
+    @Request() req: RequestWithUser,
+  ): Promise<ArticleListResponse> {
+    const userId = req.user?.id;
+    if (!userId) throw new UnauthorizedException("Unauthorized");
+    return this.articleService.getFeed(query, userId);
+  }
+
   @Post("empty-draft")
   @UseGuards(AuthGuard("jwt"))
   @ApiBody({ description: "CreateEmptyDraftSchema from @smth/shared" })
