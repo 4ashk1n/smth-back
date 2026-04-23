@@ -1,6 +1,6 @@
-import { Controller, Get, Param, Post, Query, UseGuards } from "@nestjs/common";
+import { Body, Controller, Delete, Get, Param, Post, Put, Query, Request, UnauthorizedException, UseGuards } from "@nestjs/common";
 import { AuthGuard } from "@nestjs/passport";
-import { ApiOkResponse, ApiParam, ApiQuery, ApiTags } from "@nestjs/swagger";
+import { ApiBody, ApiOkResponse, ApiParam, ApiQuery, ApiTags } from "@nestjs/swagger";
 import {
   AdminReviewArticleListQuerySchema,
   type AdminModerateArticleResponse,
@@ -9,7 +9,12 @@ import {
   type AdminUserListResponse,
   AdminUserArticleListQuerySchema,
   AdminUserListQuerySchema,
+  ReviewRemarkUpsertSchema,
+  type ReviewRemarkListResponse,
+  type ReviewRemarkResponse,
+  type ReviewRemarkUpsert,
 } from "@smth/shared";
+import type { Request as ExpressRequest } from "express";
 import { z } from "zod";
 import { ZodValidationPipe } from "../common/pipes/zod-validation.pipe";
 import { Roles } from "../auth/roles.decorator";
@@ -19,6 +24,12 @@ import { AdminService } from "./admin.service";
 type ReviewListQuery = z.infer<typeof AdminReviewArticleListQuerySchema>;
 type UserListQuery = z.infer<typeof AdminUserListQuerySchema>;
 type UserArticleListQuery = z.infer<typeof AdminUserArticleListQuerySchema>;
+type UpsertRemarkDto = z.infer<typeof ReviewRemarkUpsertSchema>;
+type RequestWithUser = ExpressRequest & {
+  user?: {
+    id: string;
+  };
+};
 type ZodSchemaLike = { parse: (value: unknown) => unknown };
 const asZodType = <T extends ZodSchemaLike>(schema: T) => schema as unknown as z.ZodType;
 
@@ -78,5 +89,39 @@ export class AdminController {
     @Query(new ZodValidationPipe(asZodType(AdminUserArticleListQuerySchema))) query: UserArticleListQuery,
   ): Promise<AdminUserArticleListResponse> {
     return this.adminService.listUserArticles(id, query);
+  }
+
+  @Get("articles/:id/remarks")
+  @ApiParam({ name: "id", type: String })
+  @ApiOkResponse({ description: "ReviewRemarkListResponse from @smth/shared" })
+  listArticleRemarks(@Param("id") id: string): Promise<ReviewRemarkListResponse> {
+    return this.adminService.listArticleRemarks(id);
+  }
+
+  @Put("articles/:id/remarks/:blockId")
+  @ApiParam({ name: "id", type: String })
+  @ApiParam({ name: "blockId", type: String })
+  @ApiBody({ description: "ReviewRemarkUpsertSchema from @smth/shared" })
+  @ApiOkResponse({ description: "ReviewRemarkResponse from @smth/shared" })
+  upsertArticleRemark(
+    @Param("id") id: string,
+    @Param("blockId") blockId: string,
+    @Body(new ZodValidationPipe(asZodType(ReviewRemarkUpsertSchema))) dto: UpsertRemarkDto,
+    @Request() req: RequestWithUser,
+  ): Promise<ReviewRemarkResponse> {
+    const userId = req.user?.id;
+    if (!userId) throw new UnauthorizedException("Unauthorized");
+    return this.adminService.upsertArticleRemark(id, blockId, userId, dto as ReviewRemarkUpsert);
+  }
+
+  @Delete("articles/:id/remarks/:blockId")
+  @ApiParam({ name: "id", type: String })
+  @ApiParam({ name: "blockId", type: String })
+  @ApiOkResponse({ description: "ReviewRemarkResponse from @smth/shared" })
+  deleteArticleRemark(
+    @Param("id") id: string,
+    @Param("blockId") blockId: string,
+  ): Promise<ReviewRemarkResponse> {
+    return this.adminService.deleteArticleRemark(id, blockId);
   }
 }

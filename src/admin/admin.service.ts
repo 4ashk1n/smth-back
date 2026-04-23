@@ -7,10 +7,16 @@ import {
   AdminUserArticleListQuerySchema,
   AdminUserListResponseSchema,
   AdminUserListQuerySchema,
+  ReviewRemarkListResponseSchema,
+  ReviewRemarkResponseSchema,
+  ReviewRemarkUpsertSchema,
   type AdminModerateArticleResponse,
   type AdminReviewArticleListResponse,
   type AdminUserArticleListResponse,
   type AdminUserListResponse,
+  type ReviewRemarkListResponse,
+  type ReviewRemarkResponse,
+  type ReviewRemarkUpsert,
 } from "@smth/shared";
 import type { z } from "zod";
 import { PrismaService } from "../prisma/prisma.service";
@@ -255,6 +261,143 @@ export class AdminService {
     });
   }
 
+  async listArticleRemarks(articleId: string): Promise<ReviewRemarkListResponse> {
+    await this.ensureArticleExists(articleId);
+    const prisma: any = this.prisma;
+
+    const rows = await prisma.articleBlockRemark.findMany({
+      where: { articleId },
+      orderBy: [{ updatedAt: "desc" }, { createdAt: "desc" }],
+      select: {
+        id: true,
+        articleId: true,
+        blockId: true,
+        authorId: true,
+        text: true,
+        createdAt: true,
+        updatedAt: true,
+        author: {
+          select: {
+            id: true,
+            username: true,
+            firstname: true,
+            lastname: true,
+            avatar: true,
+          },
+        },
+      },
+    });
+
+    return ReviewRemarkListResponseSchema.parse({
+      success: true,
+      data: rows,
+    });
+  }
+
+  async upsertArticleRemark(
+    articleId: string,
+    blockId: string,
+    authorId: string,
+    dto: ReviewRemarkUpsert,
+  ): Promise<ReviewRemarkResponse> {
+    await this.ensureArticleExists(articleId);
+    const payload = ReviewRemarkUpsertSchema.parse(dto);
+    await this.ensureBlockBelongsToArticle(articleId, blockId);
+    const prisma: any = this.prisma;
+
+    const row = await prisma.articleBlockRemark.upsert({
+      where: {
+        articleId_blockId: {
+          articleId,
+          blockId,
+        },
+      },
+      update: {
+        text: payload.text,
+        authorId,
+      },
+      create: {
+        articleId,
+        blockId,
+        authorId,
+        text: payload.text,
+      },
+      select: {
+        id: true,
+        articleId: true,
+        blockId: true,
+        authorId: true,
+        text: true,
+        createdAt: true,
+        updatedAt: true,
+        author: {
+          select: {
+            id: true,
+            username: true,
+            firstname: true,
+            lastname: true,
+            avatar: true,
+          },
+        },
+      },
+    });
+
+    return ReviewRemarkResponseSchema.parse({
+      success: true,
+      data: row,
+    });
+  }
+
+  async deleteArticleRemark(articleId: string, blockId: string): Promise<ReviewRemarkResponse> {
+    await this.ensureArticleExists(articleId);
+    const prisma: any = this.prisma;
+
+    const existing = await prisma.articleBlockRemark.findUnique({
+      where: {
+        articleId_blockId: {
+          articleId,
+          blockId,
+        },
+      },
+      select: {
+        id: true,
+        articleId: true,
+        blockId: true,
+        authorId: true,
+        text: true,
+        createdAt: true,
+        updatedAt: true,
+        author: {
+          select: {
+            id: true,
+            username: true,
+            firstname: true,
+            lastname: true,
+            avatar: true,
+          },
+        },
+      },
+    });
+
+    if (!existing) {
+      throw new NotFoundException("Remark not found");
+    }
+
+    await prisma.articleBlockRemark.delete({
+      where: {
+        articleId_blockId: {
+          articleId,
+          blockId,
+        },
+      },
+    });
+
+    return ReviewRemarkResponseSchema.parse({
+      success: true,
+      data: existing,
+    });
+  }
+
   private toArticleMeta(row: {
     id: string;
     title: string;
@@ -279,5 +422,30 @@ export class AdminService {
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
     };
+  }
+
+  private async ensureArticleExists(articleId: string) {
+    const article = await this.prisma.article.findUnique({
+      where: { id: articleId },
+      select: { id: true },
+    });
+    if (!article) throw new NotFoundException("Article not found");
+  }
+
+  private async ensureBlockBelongsToArticle(articleId: string, blockId: string) {
+    const block = await this.prisma.block.findFirst({
+      where: {
+        id: blockId,
+        page: {
+          topic: {
+            articleId,
+          },
+        },
+      },
+      select: { id: true },
+    });
+    if (!block) {
+      throw new BadRequestException("Block does not belong to this article");
+    }
   }
 }
