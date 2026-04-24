@@ -12,6 +12,7 @@ import {
   type CreateArticleComment,
   CreateArticleCommentSchema,
   type ArticleResponse,
+  type AiSuggestionsResponse,
   type CreateEmptyDraft,
   type CreateEmptyDraftResponse,
   type DeleteArticleCommentResponse,
@@ -35,6 +36,7 @@ type UpdateDto = z.infer<typeof UpdateArticleSchema>;
 type RequestWithUser = ExpressRequest & {
   user?: {
     id: string;
+    role?: "user" | "moderator" | "admin";
   };
 };
 
@@ -92,6 +94,16 @@ export class ArticleController {
   @ApiOkResponse({ description: "ArticleMetricsResponse from @smth/shared" })
   getMetricsById(@Param("id") id: string, @Request() req: RequestWithUser): Promise<ArticleMetricsResponse> {
     return this.articleService.getMetricsById(id, req.user?.id);
+  }
+
+  @Get(":id/review-remarks")
+  @UseGuards(AuthGuard("jwt"))
+  @ApiParam({ name: "id", type: String })
+  @ApiOkResponse({ description: "AiSuggestionsResponse from @smth/shared" })
+  getReviewRemarks(@Param("id") id: string, @Request() req: RequestWithUser): Promise<AiSuggestionsResponse> {
+    const userId = req.user?.id;
+    if (!userId) throw new UnauthorizedException("Unauthorized");
+    return this.articleService.getReviewRemarksAsSuggestions(id, userId, req.user?.role);
   }
 
   @Get(":id/comments")

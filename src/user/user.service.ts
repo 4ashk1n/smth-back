@@ -2,6 +2,7 @@ import { BadRequestException, ForbiddenException, Injectable, NotFoundException 
 import {
   ArticleMetaSchema,
   IsSubscribedResponse,
+  NotificationSettingsSchema,
   isSubscribedResponseSchema,
   SubscribeUserResponseSchema,
   UnsubscribeUserResponseSchema,
@@ -22,6 +23,7 @@ import {
   type UserFollowingResponse,
   type UserLikedArticlesResponse,
   type UserMeta,
+  type NotificationSettings,
   type UserOtherArticlesResponse,
   type UserPublishedArticlesResponse,
   type UserRepostedArticlesResponse,
@@ -29,15 +31,25 @@ import {
 } from "@smth/shared";
 import { Prisma } from "@prisma/client";
 import type { z } from "zod";
+import { NotificationService } from "../notification/notification.service";
 import { PrismaService } from "../prisma/prisma.service";
 
 type UpdateDto = z.infer<typeof UpdateUserProfileSchema>;
 type UserMetaResponse = { success: true; data: UserMeta };
 type UserMetaListResponse = { success: true; data: UserMeta[] };
+const DEFAULT_NOTIFICATION_SETTINGS: NotificationSettings = {
+  likes: true,
+  comments: true,
+  subscriptions: true,
+  articleStatus: true,
+};
 
 @Injectable()
 export class UserService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly notificationService: NotificationService,
+  ) {}
 
   async list(): Promise<UserMetaListResponse> {
     const rows = await this.prisma.user.findMany({
@@ -47,6 +59,7 @@ export class UserService {
         firstname: true,
         lastname: true,
         avatar: true,
+        notificationSettings: true,
       },
       orderBy: { createdAt: "desc" },
     });
@@ -66,6 +79,7 @@ export class UserService {
         firstname: true,
         lastname: true,
         avatar: true,
+        notificationSettings: true,
       },
     });
     if (!row) throw new NotFoundException("User not found");
@@ -81,15 +95,25 @@ export class UserService {
 
     const existing = await this.prisma.user.findUnique({
       where: { id },
-      select: { id: true },
+      select: {
+        id: true,
+        notificationSettings: true,
+      },
     });
     if (!existing) throw new NotFoundException("User not found");
 
-    const data: Partial<UpdateDto> = {};
+    const data: Prisma.UserUpdateInput = {};
     if (dto.firstname !== undefined) data.firstname = dto.firstname;
     if (dto.lastname !== undefined) data.lastname = dto.lastname;
     if (dto.username !== undefined) data.username = dto.username;
     if (dto.avatar !== undefined) data.avatar = dto.avatar;
+    if (dto.notificationSettings !== undefined) {
+      const currentSettings = this.toNotificationSettings(existing.notificationSettings);
+      data.notificationSettings = {
+        ...currentSettings,
+        ...dto.notificationSettings,
+      } as Prisma.InputJsonValue;
+    }
 
     try {
       const updated = await this.prisma.user.update({
@@ -101,6 +125,7 @@ export class UserService {
           firstname: true,
           lastname: true,
           avatar: true,
+          notificationSettings: true,
         },
       });
 
@@ -150,6 +175,12 @@ export class UserService {
         followingId: true,
         createdAt: true,
       },
+    });
+    await this.notificationService.createNotification({
+      type: "subscribe",
+      recipientUserId: targetUserId,
+      actorUserId: currentUserId,
+      payload: {},
     });
 
     return SubscribeUserResponseSchema.parse({ success: true, data: row });
@@ -417,5 +448,11 @@ export class UserService {
     if (currentUserId !== targetUserId) {
       throw new ForbiddenException("Access denied");
     }
+  }
+
+  private toNotificationSettings(value: unknown): NotificationSettings {
+    const parsed = NotificationSettingsSchema.safeParse(value);
+    if (parsed.success) return parsed.data;
+    return DEFAULT_NOTIFICATION_SETTINGS;
   }
 }
