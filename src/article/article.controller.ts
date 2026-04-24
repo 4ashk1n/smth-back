@@ -87,17 +87,19 @@ export class ArticleController {
   }
 
   @Get(":id")
+  @UseGuards(OptionalJwtAuthGuard)
   @ApiParam({ name: "id", type: String })
   @ApiOkResponse({ description: "ArticleResponse from @smth/shared" })
-  getById(@Param("id") id: string): Promise<ArticleResponse> {
-    return this.articleService.getById(id);
+  getById(@Param("id") id: string, @Request() req: RequestWithUser): Promise<ArticleResponse> {
+    return this.articleService.getById(id, req.user?.id);
   }
 
   @Get(':id/content')
+  @UseGuards(OptionalJwtAuthGuard)
   @ApiParam({ name: 'id', type: String })
   @ApiOkResponse({ description: "ArticleContentResponse from @smth/shared" })
-  getContentById(@Param("id") id: string): Promise<ArticleContentResponse> {
-    return this.articleService.getContentById(id);
+  getContentById(@Param("id") id: string, @Request() req: RequestWithUser): Promise<ArticleContentResponse> {
+    return this.articleService.getContentById(id, req.user?.id);
   }
 
   @Get(':id/metrics')

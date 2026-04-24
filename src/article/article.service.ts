@@ -112,7 +112,7 @@ export class ArticleService {
     });
   }
 
-  async getById(id: string): Promise<ArticleResponse> {
+  async getById(id: string, userId?: string): Promise<ArticleResponse> {
     const row = await this.prisma.article.findUnique({
       where: { id },
       select: {
@@ -130,6 +130,7 @@ export class ArticleService {
     });
 
     if (!row) throw new NotFoundException("Article not found");
+    this.ensureCanReadArticle(row.status, row.authorId, userId);
     const content = await this.articleContentService.buildContentByArticleId(id);
 
     const dto = {
@@ -150,12 +151,13 @@ export class ArticleService {
   }
 
   // TODO: посмотреть на SQL-инъекцию
-  async getContentById(id: string): Promise<ArticleContentResponse> {
+  async getContentById(id: string, userId?: string): Promise<ArticleContentResponse> {
     const article = await this.prisma.article.findUnique({
       where: { id },
-      select: { id: true },
+      select: { id: true, status: true, authorId: true },
     });
     if (!article) throw new NotFoundException("Article not found");
+    this.ensureCanReadArticle(article.status, article.authorId, userId);
     const content = await this.articleContentService.buildContentByArticleId(id);
 
     return ArticleContentResponseSchema.parse({
@@ -714,6 +716,16 @@ export class ArticleService {
       select: { id: true },
     });
     if (!article) throw new NotFoundException("Article not found");
+  }
+
+  private ensureCanReadArticle(
+    status: "published" | "draft" | "archived" | "review",
+    authorId: string,
+    userId: string | undefined,
+  ) {
+    if (status === "published") return;
+    if (userId === authorId) return;
+    throw new NotFoundException("Article not found");
   }
 
   private async updateDraftStatusById(
