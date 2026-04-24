@@ -18,6 +18,7 @@ model User {
   googleId         String?             @unique
   refreshTokenHash String?
   provider         String?             @default("local")
+  notificationSettings Json?
   createdAt        DateTime            @default(now())
   updatedAt        DateTime            @updatedAt
   articles         Article[]

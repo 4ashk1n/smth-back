@@ -3,9 +3,11 @@ import type { Prisma } from "@prisma/client";
 import {
   MarkAllNotificationsReadResponseSchema,
   MarkNotificationReadResponseSchema,
+  NotificationSettingsSchema,
   NotificationListQuerySchema,
   NotificationListResponseSchema,
   type NotificationListResponse,
+  type NotificationSettings,
   type NotificationType,
   UnreadNotificationsCountResponseSchema,
   type MarkAllNotificationsReadResponse,
@@ -16,6 +18,12 @@ import type { z } from "zod";
 import { PrismaService } from "../prisma/prisma.service";
 
 type NotificationListQuery = z.infer<typeof NotificationListQuerySchema>;
+const DEFAULT_NOTIFICATION_SETTINGS: NotificationSettings = {
+  likes: true,
+  comments: true,
+  subscriptions: true,
+  articleStatus: true,
+};
 
 type CreateNotificationInput = {
   type: NotificationType;
@@ -141,6 +149,21 @@ export class NotificationService {
     if (type !== "article_status" && actorUserId && actorUserId === recipientUserId) {
       return;
     }
+    const recipient = await this.prisma.user.findUnique({
+      where: { id: recipientUserId },
+      select: {
+        id: true,
+        notificationSettings: true,
+      },
+    });
+    if (!recipient) {
+      return;
+    }
+
+    const settings = this.toNotificationSettings(recipient.notificationSettings);
+    if (!this.isNotificationEnabled(type, settings)) {
+      return;
+    }
 
     await this.prisma.notification.create({
       data: {
@@ -150,5 +173,26 @@ export class NotificationService {
         payload: payload as Prisma.InputJsonValue,
       },
     });
+  }
+
+  private toNotificationSettings(value: unknown): NotificationSettings {
+    const parsed = NotificationSettingsSchema.safeParse(value);
+    if (parsed.success) return parsed.data;
+    return DEFAULT_NOTIFICATION_SETTINGS;
+  }
+
+  private isNotificationEnabled(type: NotificationType, settings: NotificationSettings): boolean {
+    switch (type) {
+      case "like":
+        return settings.likes;
+      case "comment":
+        return settings.comments;
+      case "subscribe":
+        return settings.subscriptions;
+      case "article_status":
+        return settings.articleStatus;
+      default:
+        return true;
+    }
   }
 }
