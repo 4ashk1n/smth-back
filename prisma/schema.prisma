@@ -27,6 +27,7 @@ model User {
   notifications    Notification[]      @relation("NotificationRecipient")
   notificationsBy  Notification[]      @relation("NotificationActor")
   feed             UserFeed[]
+  recoDirty        RecoDirtyUser?
   following        UserSubscription[]  @relation("UserFollowing")
   followers        UserSubscription[]  @relation("UserFollowers")
   blockRemarks     ArticleBlockRemark[]
@@ -245,4 +246,12 @@ model Notification {
   @@index([recipientUserId, readAt])
   @@index([actorUserId])
   @@map("notifications")
+}
+
+model RecoDirtyUser {
+  userId    String   @id
+  updatedAt DateTime @updatedAt
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("reco_dirty_users")
 }

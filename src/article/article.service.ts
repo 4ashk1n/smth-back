@@ -1,5 +1,7 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
 import {
+  type AiSuggestionsResponse,
+  AiSuggestionsResponseSchema,
   ArticleCommentListQuerySchema,
   type ArticleCommentListResponse,
   ArticleCommentListResponseSchema,
@@ -8,27 +10,28 @@ import {
   ArticleContentResponse,
   ArticleContentResponseSchema,
   ArticleDTOSchema,
-  AiSuggestionsResponseSchema,
   ArticleListQuerySchema,
+  type ArticleListResponse,
   ArticleListResponseSchema,
   ArticleMetaSchema,
   ArticleMetricsResponse,
   ArticleMetricsResponseSchema,
+  type ArticleResponse,
   ArticleResponseSchema,
-  CreateEmptyDraftResponseSchema,
   type CreateArticleComment,
   CreateArticleCommentSchema,
+  type CreateEmptyDraftResponse,
+  CreateEmptyDraftResponseSchema,
   type DeleteArticleCommentResponse,
   DeleteArticleCommentResponseSchema,
   DislikeArticleResponseSchema,
   LikeArticleResponseSchema,
+  type UpdateArticleReadMetrics,
+  type UpdateArticleReadMetricsResponse,
+  UpdateArticleReadMetricsResponseSchema,
+  type UpdateArticleResponse,
   UpdateArticleResponseSchema,
   UpdateArticleSchema,
-  type ArticleListResponse,
-  type ArticleResponse,
-  type CreateEmptyDraftResponse,
-  type UpdateArticleResponse,
-  type AiSuggestionsResponse,
 } from "@smth/shared";
 import type { z } from "zod";
 import { INTERNAL_DRAFT_CATEGORY_NAME } from "../common/constants/internal-category.constants";
@@ -123,7 +126,7 @@ export class ArticleService {
     });
   }
 
-  async getById(id: string): Promise<ArticleResponse> {
+  async getById(id: string, userId?: string): Promise<ArticleResponse> {
     const row = await this.prisma.article.findUnique({
       where: { id },
       select: {
@@ -141,6 +144,7 @@ export class ArticleService {
     });
 
     if (!row) throw new NotFoundException("Article not found");
+    this.ensureCanReadArticle(row.status, row.authorId, userId);
     const content = await this.articleContentService.buildContentByArticleId(id);
 
     const dto = {
@@ -161,12 +165,13 @@ export class ArticleService {
   }
 
   // TODO: посмотреть на SQL-инъекцию
-  async getContentById(id: string): Promise<ArticleContentResponse> {
+  async getContentById(id: string, userId?: string): Promise<ArticleContentResponse> {
     const article = await this.prisma.article.findUnique({
       where: { id },
-      select: { id: true },
+      select: { id: true, status: true, authorId: true },
     });
     if (!article) throw new NotFoundException("Article not found");
+    this.ensureCanReadArticle(article.status, article.authorId, userId);
     const content = await this.articleContentService.buildContentByArticleId(id);
 
     return ArticleContentResponseSchema.parse({
@@ -237,6 +242,254 @@ export class ArticleService {
         liked: userMetric?.liked ?? false,
         saved: userMetric?.saved ?? false,
         reposted: userMetric?.reposted ?? false,
+      },
+    });
+  }
+
+  async getFeed(query: ListQuery, userId: string): Promise<ArticleListResponse> {
+    const feedQuery: ListQuery = {
+      ...query,
+      status: "published",
+      mainCategoryId: undefined,
+      authorId: undefined,
+      search: undefined,
+    };
+
+    return this.listPersonalizedFeed(feedQuery, userId);
+  }
+
+  private async listPersonalizedFeed(query: ListQuery, userId: string): Promise<ArticleListResponse> {
+    const { page, limit } = query;
+    const skip = (page - 1) * limit;
+
+    const feedArticleIdsRows = await this.prisma.userFeed.findMany({
+      where: {
+        userId,
+        article: {
+          status: "published",
+        },
+      },
+      orderBy: { position: "asc" },
+      select: {
+        articleId: true,
+      },
+    });
+    const feedArticleIds = Array.from(new Set(feedArticleIdsRows.map((row) => row.articleId)));
+
+    const [recommendedCount, unreadCount] = await Promise.all([
+      this.prisma.userFeed.count({
+        where: {
+          userId,
+          article: {
+            status: "published",
+          },
+        },
+      }),
+      this.prisma.article.count({
+        where: {
+          status: "published",
+          ...(feedArticleIds.length > 0 ? { id: { notIn: feedArticleIds } } : {}),
+          userMetrics: {
+            none: {
+              userId,
+            },
+          },
+        },
+      }),
+    ]);
+
+    const recSkip = Math.min(skip, recommendedCount);
+    const recTake = Math.max(0, Math.min(limit, recommendedCount - recSkip));
+    const unreadSkip = Math.max(0, skip - recommendedCount);
+    const unreadTake = Math.max(0, limit - recTake);
+
+    const [recommendedRows, unreadRows] = await Promise.all([
+      recTake > 0
+        ? this.prisma.userFeed.findMany({
+          where: {
+            userId,
+            article: {
+              status: "published",
+            },
+          },
+          orderBy: { position: "asc" },
+          skip: recSkip,
+          take: recTake,
+          select: {
+            article: {
+              select: {
+                id: true,
+                title: true,
+                description: true,
+                authorId: true,
+                status: true,
+                mainCategoryId: true,
+                publishedAt: true,
+                createdAt: true,
+                updatedAt: true,
+                categories: { select: { id: true } },
+              },
+            },
+          },
+        })
+        : Promise.resolve([]),
+      unreadTake > 0
+        ? this.prisma.article.findMany({
+          where: {
+            status: "published",
+            ...(feedArticleIds.length > 0 ? { id: { notIn: feedArticleIds } } : {}),
+            userMetrics: {
+              none: {
+                userId,
+              },
+            },
+          },
+          orderBy: [{ publishedAt: "desc" }, { createdAt: "desc" }],
+          skip: unreadSkip,
+          take: unreadTake,
+          select: {
+            id: true,
+            title: true,
+            description: true,
+            authorId: true,
+            status: true,
+            mainCategoryId: true,
+            publishedAt: true,
+            createdAt: true,
+            updatedAt: true,
+            categories: { select: { id: true } },
+          },
+        })
+        : Promise.resolve([]),
+    ]);
+
+    const recommendedItems = recommendedRows.map((row) => ({
+      id: row.article.id,
+      title: row.article.title,
+      description: row.article.description,
+      authorId: row.article.authorId,
+      mainCategoryId: row.article.mainCategoryId,
+      categories: row.article.categories.map((c) => c.id),
+      status: row.article.status,
+      publishedAt: row.article.publishedAt,
+      createdAt: row.article.createdAt,
+      updatedAt: row.article.updatedAt,
+    }));
+    const unreadItems = unreadRows.map((a) => ({
+      id: a.id,
+      title: a.title,
+      description: a.description,
+      authorId: a.authorId,
+      mainCategoryId: a.mainCategoryId,
+      categories: a.categories.map((c) => c.id),
+      status: a.status,
+      publishedAt: a.publishedAt,
+      createdAt: a.createdAt,
+      updatedAt: a.updatedAt,
+    }));
+
+    const parsed = ArticleMetaSchema.array().parse([...recommendedItems, ...unreadItems]);
+    const total = recommendedCount + unreadCount;
+
+    return ArticleListResponseSchema.parse({
+      success: true,
+      data: {
+        items: parsed,
+        total,
+        page,
+        limit,
+        hasMore: skip + parsed.length < total,
+      },
+    });
+  }
+
+  async reportReadMetrics(articleId: string, userId: string, dto: UpdateArticleReadMetrics): Promise<UpdateArticleReadMetricsResponse> {
+    await this.prisma.$transaction(async (tx) => {
+      const article = await tx.article.findUnique({
+        where: { id: articleId },
+        select: { id: true },
+      });
+      if (!article) throw new NotFoundException("Article not found");
+
+      const existing = await tx.userArticleMetric.findUnique({
+        where: {
+          userId_articleId: {
+            userId,
+            articleId,
+          },
+        },
+        select: {
+          firstViewedAt: true,
+          lastViewedAt: true,
+        },
+      });
+
+      const focusTimeDelta = dto.focusTimeDelta ?? 0;
+      const viewedPagesDelta = dto.viewedPagesDelta ?? 0;
+      const firstViewedAt = this.toDateNullable(dto.firstViewedAt);
+      const lastViewedAt = this.toDateNullable(dto.lastViewedAt);
+      const nextFirstViewedAt = this.minDateNullable(existing?.firstViewedAt ?? null, firstViewedAt);
+      const nextLastViewedAt = this.maxDateNullable(existing?.lastViewedAt ?? null, lastViewedAt);
+
+      if (existing) {
+        await tx.userArticleMetric.update({
+          where: {
+            userId_articleId: {
+              userId,
+              articleId,
+            },
+          },
+          data: {
+            ...(focusTimeDelta > 0 ? { focusTime: { increment: focusTimeDelta } } : {}),
+            ...(viewedPagesDelta > 0 ? { viewedPages: { increment: viewedPagesDelta } } : {}),
+            firstViewedAt: nextFirstViewedAt,
+            lastViewedAt: nextLastViewedAt,
+            updatedAt: new Date(),
+          },
+        });
+        await tx.recoDirtyUser.upsert({
+          where: { userId },
+          update: {
+            updatedAt: new Date(),
+          },
+          create: {
+            userId,
+          },
+        });
+        return;
+      }
+
+      await tx.userArticleMetric.create({
+        data: {
+          userId,
+          articleId,
+          focusTime: focusTimeDelta,
+          viewedPages: viewedPagesDelta,
+          liked: false,
+          saved: false,
+          disliked: false,
+          subscribed: false,
+          reposted: false,
+          firstViewedAt: nextFirstViewedAt,
+          lastViewedAt: nextLastViewedAt,
+          updatedAt: new Date(),
+        },
+      });
+      await tx.recoDirtyUser.upsert({
+        where: { userId },
+        update: {
+          updatedAt: new Date(),
+        },
+        create: {
+          userId,
+        },
+      });
+    });
+
+    return UpdateArticleReadMetricsResponseSchema.parse({
+      success: true,
+      data: {
+        articleId,
       },
     });
   }
@@ -591,6 +844,7 @@ export class ArticleService {
           disliked: true,
         },
       });
+    await this.markUserFeedDirty(userId);
 
       return {
         metric,
@@ -632,6 +886,7 @@ export class ArticleService {
         updatedAt: new Date(),
       },
     });
+    await this.markUserFeedDirty(userId);
 
     const metric = await this.prisma.userArticleMetric.findUnique({
       where: {
@@ -688,6 +943,7 @@ export class ArticleService {
           updatedAt: new Date(),
         },
       });
+      await this.markUserFeedDirty(userId);
       return;
     }
 
@@ -701,6 +957,19 @@ export class ArticleService {
         updatedAt: new Date(),
       },
     });
+    await this.markUserFeedDirty(userId);
+  }
+
+  private async markUserFeedDirty(userId: string) {
+    await this.prisma.recoDirtyUser.upsert({
+      where: { userId },
+      update: {
+        updatedAt: new Date(),
+      },
+      create: {
+        userId,
+      },
+    });
   }
 
   private async ensureArticleExists(articleId: string) {
@@ -709,6 +978,16 @@ export class ArticleService {
       select: { id: true },
     });
     if (!article) throw new NotFoundException("Article not found");
+  }
+
+  private ensureCanReadArticle(
+    status: "published" | "draft" | "archived" | "review",
+    authorId: string,
+    userId: string | undefined,
+  ) {
+    if (status === "published") return;
+    if (userId === authorId) return;
+    throw new NotFoundException("Article not found");
   }
 
   private async ensureCanAccessReviewRemarks(
@@ -1116,6 +1395,28 @@ export class ArticleService {
   private toJsonNullable(value: unknown) {
     if (value === undefined) return null;
     return value as any;
+  }
+
+  private toDateNullable(value: unknown): Date | null {
+    if (!value) return null;
+    if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value;
+    if (typeof value === "string") {
+      const parsed = new Date(value);
+      return Number.isNaN(parsed.getTime()) ? null : parsed;
+    }
+    return null;
+  }
+
+  private minDateNullable(left: Date | null, right: Date | null): Date | null {
+    if (!left) return right;
+    if (!right) return left;
+    return left.getTime() <= right.getTime() ? left : right;
+  }
+
+  private maxDateNullable(left: Date | null, right: Date | null): Date | null {
+    if (!left) return right;
+    if (!right) return left;
+    return left.getTime() >= right.getTime() ? left : right;
   }
 
 }

@@ -2,6 +2,7 @@ import { Body, Controller, Delete, Get, Param, Post, Query, Request, Unauthorize
 import { AuthGuard } from "@nestjs/passport";
 import { ApiBody, ApiCreatedResponse, ApiOkResponse, ApiParam, ApiQuery, ApiTags } from "@nestjs/swagger";
 import {
+  type AiSuggestionsResponse,
   ArticleCommentListQuerySchema,
   type ArticleCommentListResponse,
   type ArticleCommentResponse,
@@ -9,23 +10,25 @@ import {
   ArticleListQuerySchema,
   type ArticleListResponse,
   ArticleMetricsResponse,
+  type ArticleResponse,
   type CreateArticleComment,
   CreateArticleCommentSchema,
-  type ArticleResponse,
-  type AiSuggestionsResponse,
   type CreateEmptyDraft,
   type CreateEmptyDraftResponse,
-  type DeleteArticleCommentResponse,
   CreateEmptyDraftSchema,
+  type DeleteArticleCommentResponse,
   type DislikeArticleResponse,
   type LikeArticleResponse,
+  type UpdateArticleReadMetrics,
+  type UpdateArticleReadMetricsResponse,
+  UpdateArticleReadMetricsSchema,
   type UpdateArticleResponse,
   UpdateArticleSchema,
 } from "@smth/shared";
 import type { Request as ExpressRequest } from "express";
 import { z } from "zod";
-import { ZodValidationPipe } from "../common/pipes/zod-validation.pipe";
 import { OptionalJwtAuthGuard } from "../auth/optional-jwt-auth.guard";
+import { ZodValidationPipe } from "../common/pipes/zod-validation.pipe";
 import { ArticleService } from "./article.service";
 
 type ListQuery = z.infer<typeof ArticleListQuerySchema>;
@@ -33,6 +36,7 @@ type CommentListQuery = z.infer<typeof ArticleCommentListQuerySchema>;
 type CreateCommentDto = z.infer<typeof CreateArticleCommentSchema>;
 type CreateEmptyDraftDto = z.infer<typeof CreateEmptyDraftSchema>;
 type UpdateDto = z.infer<typeof UpdateArticleSchema>;
+type ReadMetricsDto = z.infer<typeof UpdateArticleReadMetricsSchema>;
 type RequestWithUser = ExpressRequest & {
   user?: {
     id: string;
@@ -59,6 +63,24 @@ export class ArticleController {
     return this.articleService.list(query);
   }
 
+  @Get("feed")
+  @UseGuards(AuthGuard("jwt"))
+  @ApiQuery({ name: "page", required: false, type: Number })
+  @ApiQuery({ name: "limit", required: false, type: Number })
+  @ApiQuery({ name: "status", required: false, enum: ["published", "draft", "archived", "review"] })
+  @ApiQuery({ name: "mainCategoryId", required: false, type: String })
+  @ApiQuery({ name: "authorId", required: false, type: String })
+  @ApiQuery({ name: "search", required: false, type: String })
+  @ApiOkResponse({ description: "ArticleListResponse from @smth/shared" })
+  feed(
+    @Query(new ZodValidationPipe(asZodType(ArticleListQuerySchema))) query: ListQuery,
+    @Request() req: RequestWithUser,
+  ): Promise<ArticleListResponse> {
+    const userId = req.user?.id;
+    if (!userId) throw new UnauthorizedException("Unauthorized");
+    return this.articleService.getFeed(query, userId);
+  }
+
   @Post("empty-draft")
   @UseGuards(AuthGuard("jwt"))
   @ApiBody({ description: "CreateEmptyDraftSchema from @smth/shared" })
@@ -75,17 +97,19 @@ export class ArticleController {
   }
 
   @Get(":id")
+  @UseGuards(OptionalJwtAuthGuard)
   @ApiParam({ name: "id", type: String })
   @ApiOkResponse({ description: "ArticleResponse from @smth/shared" })
-  getById(@Param("id") id: string): Promise<ArticleResponse> {
-    return this.articleService.getById(id);
+  getById(@Param("id") id: string, @Request() req: RequestWithUser): Promise<ArticleResponse> {
+    return this.articleService.getById(id, req.user?.id);
   }
 
   @Get(':id/content')
+  @UseGuards(OptionalJwtAuthGuard)
   @ApiParam({ name: 'id', type: String })
   @ApiOkResponse({ description: "ArticleContentResponse from @smth/shared" })
-  getContentById(@Param("id") id: string): Promise<ArticleContentResponse> {
-    return this.articleService.getContentById(id);
+  getContentById(@Param("id") id: string, @Request() req: RequestWithUser): Promise<ArticleContentResponse> {
+    return this.articleService.getContentById(id, req.user?.id);
   }
 
   @Get(':id/metrics')
@@ -94,6 +118,21 @@ export class ArticleController {
   @ApiOkResponse({ description: "ArticleMetricsResponse from @smth/shared" })
   getMetricsById(@Param("id") id: string, @Request() req: RequestWithUser): Promise<ArticleMetricsResponse> {
     return this.articleService.getMetricsById(id, req.user?.id);
+  }
+
+  @Post(":id/metrics/read")
+  @UseGuards(AuthGuard("jwt"))
+  @ApiParam({ name: "id", type: String })
+  @ApiBody({ description: "UpdateArticleReadMetricsSchema from @smth/shared" })
+  @ApiOkResponse({ description: "UpdateArticleReadMetricsResponse from @smth/shared" })
+  reportReadMetrics(
+    @Param("id") id: string,
+    @Body(new ZodValidationPipe(asZodType(UpdateArticleReadMetricsSchema))) dto: ReadMetricsDto,
+    @Request() req: RequestWithUser,
+  ): Promise<UpdateArticleReadMetricsResponse> {
+    const userId = req.user?.id;
+    if (!userId) throw new UnauthorizedException("Unauthorized");
+    return this.articleService.reportReadMetrics(id, userId, dto as UpdateArticleReadMetrics);
   }
 
   @Get(":id/review-remarks")
