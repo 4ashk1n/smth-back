@@ -1,4 +1,5 @@
-import { Controller, Get, Post, Request, Response, UnauthorizedException, UseGuards } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
+import { BadRequestException, Controller, Get, Post, Request, Response, UnauthorizedException, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import {
   AuthLogoutResponseSchema,
@@ -12,12 +13,15 @@ import type { Request as ExpressRequest, Response as ExpressResponse } from 'exp
 import { AuthService } from './auth.service';
 import { ACCESS_TOKEN_COOKIE, getAuthCookieOptions, REFRESH_TOKEN_COOKIE } from './auth.constants';
 
+const TIKTOK_OAUTH_STATE_COOKIE = 'tiktok_oauth_state';
+
 type RequestWithUser = ExpressRequest & {
   user?: {
     id: string;
     email: string | null;
     role: "user" | "moderator" | "admin";
     googleId: string | null;
+    tiktokId: string | null;
     username: string;
     firstname: string;
     lastname: string;
@@ -60,6 +64,62 @@ export class AuthController {
       return res.redirect(redirect);
     }
     return res.json(AuthMeResponseSchema.parse({ success: true, data: req.user }));
+  }
+
+  @Get('tiktok')
+  async tiktokAuth(@Response() res: ExpressResponse) {
+    const clientKey = process.env.TIKTOK_CLIENT_KEY;
+    const callbackUrl = process.env.TIKTOK_CALLBACK_URL;
+    if (!clientKey || !callbackUrl) {
+      throw new BadRequestException('TikTok OAuth is not configured');
+    }
+
+    const state = randomUUID();
+    res.cookie(TIKTOK_OAUTH_STATE_COOKIE, state, getAuthCookieOptions(10 * 60 * 1000));
+
+    const params = new URLSearchParams({
+      client_key: clientKey,
+      response_type: 'code',
+      scope: process.env.TIKTOK_SCOPE ?? 'user.info.basic',
+      redirect_uri: callbackUrl,
+      state,
+    });
+
+    return res.redirect(`https://www.tiktok.com/v2/auth/authorize/?${params.toString()}`);
+  }
+
+  @Get('tiktok/callback')
+  async tiktokAuthCallback(
+    @Request() req: ExpressRequest,
+    @Response() res: ExpressResponse,
+  ) {
+    const code = this.readStringQuery(req.query?.code);
+    const state = this.readStringQuery(req.query?.state);
+    const error = this.readStringQuery(req.query?.error);
+    const errorDescription = this.readStringQuery(req.query?.error_description);
+    const expectedState = req.cookies?.[TIKTOK_OAUTH_STATE_COOKIE];
+
+    res.clearCookie(TIKTOK_OAUTH_STATE_COOKIE, getAuthCookieOptions(0));
+
+    if (error) {
+      throw new UnauthorizedException(errorDescription ?? `TikTok authentication failed: ${error}`);
+    }
+    if (!code || !state || !expectedState || state !== expectedState) {
+      throw new UnauthorizedException('TikTok authentication failed');
+    }
+
+    const user = await this.authService.validateTikTokAuthCode(code);
+    const tokens = await this.authService.issueTokens({
+      id: user.id,
+      email: user.email,
+    });
+    this.setAuthCookies(res, tokens.accessToken, tokens.refreshToken);
+
+    const redirect = process.env.AUTH_TIKTOK_SUCCESS_REDIRECT ?? process.env.AUTH_GOOGLE_SUCCESS_REDIRECT;
+    if (redirect) {
+      return res.redirect(redirect);
+    }
+    return res.json(AuthMeResponseSchema.parse({ success: true, data: user }));
   }
 
   @Get('me')
@@ -105,5 +165,10 @@ export class AuthController {
   private clearAuthCookies(res: ExpressResponse) {
     res.clearCookie(ACCESS_TOKEN_COOKIE, getAuthCookieOptions(0));
     res.clearCookie(REFRESH_TOKEN_COOKIE, getAuthCookieOptions(0));
+  }
+
+  private readStringQuery(value: unknown): string | null {
+    if (typeof value === 'string') return value;
+    return null;
   }
 }
