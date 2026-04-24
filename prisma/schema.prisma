@@ -23,6 +23,7 @@ model User {
   articles         Article[]
   articleMetrics   UserArticleMetric[]
   feed             UserFeed[]
+  recoDirty        RecoDirtyUser?
   following        UserSubscription[]  @relation("UserFollowing")
   followers        UserSubscription[]  @relation("UserFollowers")
 
@@ -182,4 +183,12 @@ model UserFeed {
   @@unique([userId, position])
   @@index([userId, articleId])
   @@map("user_feed")
+}
+
+model RecoDirtyUser {
+  userId    String   @id
+  updatedAt DateTime @updatedAt
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("reco_dirty_users")
 }

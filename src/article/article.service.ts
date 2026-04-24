@@ -429,6 +429,15 @@ export class ArticleService {
             updatedAt: new Date(),
           },
         });
+        await tx.recoDirtyUser.upsert({
+          where: { userId },
+          update: {
+            updatedAt: new Date(),
+          },
+          create: {
+            userId,
+          },
+        });
         return;
       }
 
@@ -446,6 +455,15 @@ export class ArticleService {
           firstViewedAt: nextFirstViewedAt,
           lastViewedAt: nextLastViewedAt,
           updatedAt: new Date(),
+        },
+      });
+      await tx.recoDirtyUser.upsert({
+        where: { userId },
+        update: {
+          updatedAt: new Date(),
+        },
+        create: {
+          userId,
         },
       });
     });
@@ -618,6 +636,7 @@ export class ArticleService {
         disliked: true,
       },
     });
+    await this.markUserFeedDirty(userId);
 
     const payload = { success: true, data: metric };
     return reaction === "like"
@@ -639,6 +658,7 @@ export class ArticleService {
         updatedAt: new Date(),
       },
     });
+    await this.markUserFeedDirty(userId);
 
     const metric = await this.prisma.userArticleMetric.findUnique({
       where: {
@@ -695,6 +715,7 @@ export class ArticleService {
           updatedAt: new Date(),
         },
       });
+      await this.markUserFeedDirty(userId);
       return;
     }
 
@@ -706,6 +727,19 @@ export class ArticleService {
       data: {
         [flag]: false,
         updatedAt: new Date(),
+      },
+    });
+    await this.markUserFeedDirty(userId);
+  }
+
+  private async markUserFeedDirty(userId: string) {
+    await this.prisma.recoDirtyUser.upsert({
+      where: { userId },
+      update: {
+        updatedAt: new Date(),
+      },
+      create: {
+        userId,
       },
     });
   }
