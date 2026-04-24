@@ -17,6 +17,8 @@ model User {
   email            String?             @unique
   googleId         String?             @unique
   tiktokId         String?             @unique
+  isBanned         Boolean             @default(false)
+  bannedAt         DateTime?
   refreshTokenHash String?
   provider         String?             @default("local")
   notificationSettings Json?

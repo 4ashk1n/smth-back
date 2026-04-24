@@ -152,6 +152,8 @@ export class AuthService {
         email: true,
         googleId: true,
         tiktokId: true,
+        isBanned: true,
+        bannedAt: true,
         username: true,
         firstname: true,
         lastname: true,
@@ -164,6 +166,9 @@ export class AuthService {
     });
     if (!user?.refreshTokenHash) {
       throw new UnauthorizedException('Refresh token not found');
+    }
+    if (user.isBanned) {
+      throw new UnauthorizedException('User is banned');
     }
 
     const refreshTokenHash = this.hashToken(refreshToken);
@@ -179,6 +184,8 @@ export class AuthService {
         email: user.email,
         googleId: user.googleId,
         tiktokId: user.tiktokId,
+        isBanned: user.isBanned,
+        bannedAt: user.bannedAt,
         username: user.username,
         firstname: user.firstname,
         lastname: user.lastname,
@@ -221,6 +228,8 @@ export class AuthService {
         email: true,
         googleId: true,
         tiktokId: true,
+        isBanned: true,
+        bannedAt: true,
         username: true,
         firstname: true,
         lastname: true,

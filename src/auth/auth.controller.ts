@@ -22,6 +22,8 @@ type RequestWithUser = ExpressRequest & {
     role: "user" | "moderator" | "admin";
     googleId: string | null;
     tiktokId: string | null;
+    isBanned: boolean;
+    bannedAt: Date | null;
     username: string;
     firstname: string;
     lastname: string;
