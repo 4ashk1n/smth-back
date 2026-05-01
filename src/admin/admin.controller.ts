@@ -32,6 +32,23 @@ type RequestWithUser = ExpressRequest & {
 };
 type ZodSchemaLike = { parse: (value: unknown) => unknown };
 const asZodType = <T extends ZodSchemaLike>(schema: T) => schema as unknown as z.ZodType;
+type AdminModerateUserResponse = {
+  success: true;
+  data: {
+    id: string;
+    username: string;
+    firstname: string;
+    lastname: string;
+    avatar: string;
+    role: "user" | "moderator" | "admin";
+    email: string | null;
+    provider: string | null;
+    isBanned: boolean;
+    bannedAt: Date | null;
+    createdAt: Date;
+    updatedAt: Date;
+  };
+};
 
 @ApiTags("admin")
 @Controller("admin")
@@ -76,6 +93,30 @@ export class AdminController {
     return this.adminService.rejectArticle(id, userId);
   }
 
+  @Post("articles/:id/archive")
+  @ApiParam({ name: "id", type: String })
+  @ApiOkResponse({ description: "AdminModerateArticleResponse from @smth/shared" })
+  archiveArticle(
+    @Param("id") id: string,
+    @Request() req: RequestWithUser,
+  ): Promise<AdminModerateArticleResponse> {
+    const userId = req.user?.id;
+    if (!userId) throw new UnauthorizedException("Unauthorized");
+    return this.adminService.archiveArticle(id, userId);
+  }
+
+  @Post("articles/:id/publish")
+  @ApiParam({ name: "id", type: String })
+  @ApiOkResponse({ description: "AdminModerateArticleResponse from @smth/shared" })
+  publishArchivedArticle(
+    @Param("id") id: string,
+    @Request() req: RequestWithUser,
+  ): Promise<AdminModerateArticleResponse> {
+    const userId = req.user?.id;
+    if (!userId) throw new UnauthorizedException("Unauthorized");
+    return this.adminService.publishArchivedArticle(id, userId);
+  }
+
   @Get("users")
   @ApiQuery({ name: "page", required: false, type: Number })
   @ApiQuery({ name: "limit", required: false, type: Number })
@@ -85,6 +126,30 @@ export class AdminController {
     @Query(new ZodValidationPipe(asZodType(AdminUserListQuerySchema))) query: UserListQuery,
   ): Promise<AdminUserListResponse> {
     return this.adminService.listUsers(query);
+  }
+
+  @Post("users/:id/ban")
+  @ApiParam({ name: "id", type: String })
+  @ApiOkResponse({ description: "AdminModerateUserResponse from @smth/shared" })
+  banUser(
+    @Param("id") id: string,
+    @Request() req: RequestWithUser,
+  ): Promise<AdminModerateUserResponse> {
+    const actorUserId = req.user?.id;
+    if (!actorUserId) throw new UnauthorizedException("Unauthorized");
+    return this.adminService.banUser(id, actorUserId);
+  }
+
+  @Post("users/:id/unban")
+  @ApiParam({ name: "id", type: String })
+  @ApiOkResponse({ description: "AdminModerateUserResponse from @smth/shared" })
+  unbanUser(
+    @Param("id") id: string,
+    @Request() req: RequestWithUser,
+  ): Promise<AdminModerateUserResponse> {
+    const actorUserId = req.user?.id;
+    if (!actorUserId) throw new UnauthorizedException("Unauthorized");
+    return this.adminService.unbanUser(id, actorUserId);
   }
 
   @Get("users/:id/articles")
