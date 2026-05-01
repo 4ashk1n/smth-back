@@ -101,7 +101,7 @@ export class ArticleController {
   @ApiParam({ name: "id", type: String })
   @ApiOkResponse({ description: "ArticleResponse from @smth/shared" })
   getById(@Param("id") id: string, @Request() req: RequestWithUser): Promise<ArticleResponse> {
-    return this.articleService.getById(id, req.user?.id);
+    return this.articleService.getById(id, req.user?.id, req.user?.role);
   }
 
   @Get(':id/content')
@@ -109,7 +109,7 @@ export class ArticleController {
   @ApiParam({ name: 'id', type: String })
   @ApiOkResponse({ description: "ArticleContentResponse from @smth/shared" })
   getContentById(@Param("id") id: string, @Request() req: RequestWithUser): Promise<ArticleContentResponse> {
-    return this.articleService.getContentById(id, req.user?.id);
+    return this.articleService.getContentById(id, req.user?.id, req.user?.role);
   }
 
   @Get(':id/metrics')
