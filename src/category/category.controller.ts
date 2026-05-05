@@ -1,23 +1,19 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post } from "@nestjs/common";
 import { ApiBody, ApiCreatedResponse, ApiOkResponse, ApiParam, ApiTags } from "@nestjs/swagger";
 import {
+  type CreateCategory,
   type CategoryListResponse,
   type CategoryResponse,
   type CreateCategoryResponse,
   CreateCategorySchema,
   type DeleteCategoryResponse,
+  type UpdateCategory,
   type UpdateCategoryResponse,
   UpdateCategorySchema,
 } from "@smth/shared";
-import { z } from "zod";
 import { ZodValidationPipe } from "../common/pipes/zod-validation.pipe";
 import { CategoryService } from "./category.service";
 
-type CreateDto = z.infer<typeof CreateCategorySchema>;
-type UpdateDto = z.infer<typeof UpdateCategorySchema>;
-
-type ZodSchemaLike = { parse: (value: unknown) => unknown };
-const asZodType = <T extends ZodSchemaLike>(schema: T) => schema as unknown as z.ZodType;
 
 @Controller("categories")
 @ApiTags("categories")
@@ -40,7 +36,7 @@ export class CategoryController {
   @Post()
   @ApiBody({ description: "CreateCategorySchema from @smth/shared" })
   @ApiCreatedResponse({ description: "CreateCategoryResponse from @smth/shared" })
-  create(@Body(new ZodValidationPipe(asZodType(CreateCategorySchema))) dto: CreateDto): Promise<CreateCategoryResponse> {
+  create(@Body(new ZodValidationPipe(CreateCategorySchema)) dto: CreateCategory): Promise<CreateCategoryResponse> {
     return this.categoryService.create(dto);
   }
 
@@ -48,7 +44,7 @@ export class CategoryController {
   @ApiParam({ name: "id", type: String })
   @ApiBody({ description: "UpdateCategorySchema from @smth/shared" })
   @ApiOkResponse({ description: "UpdateCategoryResponse from @smth/shared" })
-  update(@Param("id") id: string, @Body(new ZodValidationPipe(asZodType(UpdateCategorySchema))) dto: UpdateDto): Promise<UpdateCategoryResponse> {
+  update(@Param("id") id: string, @Body(new ZodValidationPipe(UpdateCategorySchema)) dto: UpdateCategory): Promise<UpdateCategoryResponse> {
     return this.categoryService.update(id, dto);
   }
 
@@ -59,3 +55,6 @@ export class CategoryController {
     return this.categoryService.remove(id);
   }
 }
+
+
+

@@ -1,6 +1,5 @@
 import { BadRequestException, Body, Controller, NotFoundException, Post, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
-import { z } from 'zod';
 import {
   ConfirmImageUploadRequestSchema,
   type ConfirmImageUploadRequest,
@@ -12,8 +11,6 @@ import {
 import { ZodValidationPipe } from '../common/pipes/zod-validation.pipe';
 import { S3Service } from './s3.service';
 
-type ZodSchemaLike = { parse: (value: unknown) => unknown };
-const asZodType = <T extends ZodSchemaLike>(schema: T) => schema as unknown as z.ZodType;
 
 @Controller('uploads/images')
 @UseGuards(AuthGuard('jwt'))
@@ -22,7 +19,7 @@ export class StorageController {
 
   @Post('upload-url')
   async createUploadUrl(
-    @Body(new ZodValidationPipe(asZodType(PrepareImageUploadRequestSchema))) dto: PrepareImageUploadRequest,
+    @Body(new ZodValidationPipe(PrepareImageUploadRequestSchema)) dto: PrepareImageUploadRequest,
   ): Promise<PrepareImageUploadResponse> {
     if (dto.contentType && !dto.contentType.startsWith('image/')) {
       throw new BadRequestException('Only image content types are allowed');
@@ -46,7 +43,7 @@ export class StorageController {
 
   @Post('confirm')
   async confirmUpload(
-    @Body(new ZodValidationPipe(asZodType(ConfirmImageUploadRequestSchema))) dto: ConfirmImageUploadRequest,
+    @Body(new ZodValidationPipe(ConfirmImageUploadRequestSchema)) dto: ConfirmImageUploadRequest,
   ): Promise<ConfirmImageUploadResponse> {
     const exists = await this.s3Service.objectExists(dto.key);
     if (!exists) {
@@ -62,3 +59,6 @@ export class StorageController {
     };
   }
 }
+
+
+

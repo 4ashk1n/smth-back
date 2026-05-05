@@ -2,6 +2,7 @@ import { BadRequestException, ForbiddenException, Injectable, NotFoundException 
 import {
   type AiSuggestionsResponse,
   AiSuggestionsResponseSchema,
+  type ArticleCommentListQuery,
   ArticleCommentListQuerySchema,
   type ArticleCommentListResponse,
   ArticleCommentListResponseSchema,
@@ -10,7 +11,7 @@ import {
   ArticleContentResponse,
   ArticleContentResponseSchema,
   ArticleDTOSchema,
-  ArticleListQuerySchema,
+  type ArticleListQuery,
   type ArticleListResponse,
   ArticleListResponseSchema,
   ArticleMetaSchema,
@@ -18,6 +19,7 @@ import {
   ArticleMetricsResponseSchema,
   type ArticleResponse,
   ArticleResponseSchema,
+  type ArticleUpdate,
   type CreateArticleComment,
   CreateArticleCommentSchema,
   type CreateEmptyDraftResponse,
@@ -30,18 +32,13 @@ import {
   type UpdateArticleReadMetricsResponse,
   UpdateArticleReadMetricsResponseSchema,
   type UpdateArticleResponse,
-  UpdateArticleResponseSchema,
-  UpdateArticleSchema,
+  UpdateArticleResponseSchema
 } from "@smth/shared";
-import type { z } from "zod";
 import { INTERNAL_DRAFT_CATEGORY_NAME } from "../common/constants/internal-category.constants";
 import { NotificationService } from "../notification/notification.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { ArticleContentService } from "./article-content.service";
 
-type UpdateDto = z.infer<typeof UpdateArticleSchema>;
-type ListQuery = z.infer<typeof ArticleListQuerySchema>;
-type CommentListQuery = z.infer<typeof ArticleCommentListQuerySchema>;
 type DeleteArticleResponse = { success: true; data: { id: string } };
 
 @Injectable()
@@ -55,7 +52,7 @@ export class ArticleService {
     private readonly notificationService: NotificationService,
   ) { }
 
-  async list(query: ListQuery): Promise<ArticleListResponse> {
+  async list(query: ArticleListQuery): Promise<ArticleListResponse> {
     const { page, limit, status, mainCategoryId, authorId, search } = query;
 
     const where: any = {};
@@ -168,7 +165,6 @@ export class ArticleService {
     return ArticleResponseSchema.parse({ success: true, data: ArticleDTOSchema.parse(dto) });
   }
 
-  // TODO: посмотреть на SQL-инъекцию
   async getContentById(
     id: string,
     userId?: string,
@@ -254,8 +250,8 @@ export class ArticleService {
     });
   }
 
-  async getFeed(query: ListQuery, userId: string): Promise<ArticleListResponse> {
-    const feedQuery: ListQuery = {
+  async getFeed(query: ArticleListQuery, userId: string): Promise<ArticleListResponse> {
+    const feedQuery: ArticleListQuery = {
       ...query,
       status: "published",
       mainCategoryId: undefined,
@@ -266,7 +262,7 @@ export class ArticleService {
     return this.listPersonalizedFeed(feedQuery, userId);
   }
 
-  private async listPersonalizedFeed(query: ListQuery, userId: string): Promise<ArticleListResponse> {
+  private async listPersonalizedFeed(query: ArticleListQuery, userId: string): Promise<ArticleListResponse> {
     const { page, limit } = query;
     const skip = (page - 1) * limit;
 
@@ -544,7 +540,7 @@ export class ArticleService {
     });
   }
 
-  async listComments(articleId: string, query: CommentListQuery): Promise<ArticleCommentListResponse> {
+  async listComments(articleId: string, query: ArticleCommentListQuery): Promise<ArticleCommentListResponse> {
     await this.ensureArticleExists(articleId);
     const parsedQuery = ArticleCommentListQuerySchema.parse(query);
     const { page, limit } = parsedQuery;
@@ -754,11 +750,11 @@ export class ArticleService {
     return { success: true, data: { id } };
   }
 
-  async saveDraftById(id: string, authorId: string, dto: UpdateDto): Promise<UpdateArticleResponse> {
+  async saveDraftById(id: string, authorId: string, dto: ArticleUpdate): Promise<UpdateArticleResponse> {
     return this.updateDraftStatusById(id, authorId, dto, "draft");
   }
 
-  async submitForReviewById(id: string, authorId: string, dto: UpdateDto): Promise<UpdateArticleResponse> {
+  async submitForReviewById(id: string, authorId: string, dto: ArticleUpdate): Promise<UpdateArticleResponse> {
     return this.updateDraftStatusById(id, authorId, dto, "review");
   }
 
@@ -1020,7 +1016,7 @@ export class ArticleService {
   private async updateDraftStatusById(
     id: string,
     authorId: string,
-    dto: UpdateDto,
+    dto: ArticleUpdate,
     status: "draft" | "review",
   ): Promise<UpdateArticleResponse> {
     const existing = await this.prisma.article.findUnique({

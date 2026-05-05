@@ -10,31 +10,19 @@ import {
   IsSubscribedResponse,
   type SubscribeUserResponse,
   type UnsubscribeUserResponse,
+  type UserProfileUpdate,
   UpdateUserProfileSchema,
   type UserLikedArticlesResponse,
-  type UserMeta,
   UserMetricsResponse,
   type UserOtherArticlesResponse,
   type UserPublishedArticlesResponse,
   type UserRepostedArticlesResponse,
-  type UserSavedArticlesResponse
+  type UserSavedArticlesResponse,
 } from "@smth/shared";
-import type { Request as ExpressRequest } from "express";
-import { z } from "zod";
 import { ZodValidationPipe } from "../common/pipes/zod-validation.pipe";
+import type { RequestWithUserId } from "../common/types/request.types";
+import type { UserMetaListResponse, UserMetaResponse } from "./user.types";
 import { UserService } from "./user.service";
-
-type UpdateDto = z.infer<typeof UpdateUserProfileSchema>;
-type UserMetaResponse = { success: true; data: UserMeta };
-type UserMetaListResponse = { success: true; data: UserMeta[] };
-type RequestWithUser = ExpressRequest & {
-  user?: {
-    id: string;
-  };
-};
-
-type ZodSchemaLike = { parse: (value: unknown) => unknown };
-const asZodType = <T extends ZodSchemaLike>(schema: T) => schema as unknown as z.ZodType;
 
 @Controller("users")
 @ApiTags("users")
@@ -61,8 +49,8 @@ export class UserController {
   @ApiOkResponse({ description: "UpdateUserProfileResponse from @smth/shared" })
   update(
     @Param("id") id: string,
-    @Request() req: RequestWithUser,
-    @Body(new ZodValidationPipe(asZodType(UpdateUserProfileSchema))) dto: UpdateDto,
+    @Request() req: RequestWithUserId,
+    @Body(new ZodValidationPipe(UpdateUserProfileSchema)) dto: UserProfileUpdate,
   ): Promise<UserMetaResponse> {
     const currentUserId = req.user?.id;
     if (!currentUserId) throw new UnauthorizedException("Unauthorized");
@@ -73,7 +61,7 @@ export class UserController {
   @UseGuards(AuthGuard("jwt"))
   @ApiParam({ name: "id", type: String })
   @ApiOkResponse({ description: "SubscribeUserResponse from @smth/shared" })
-  subscribe(@Param("id") id: string, @Request() req: RequestWithUser): Promise<SubscribeUserResponse> {
+  subscribe(@Param("id") id: string, @Request() req: RequestWithUserId): Promise<SubscribeUserResponse> {
     const currentUserId = req.user?.id;
     if (!currentUserId) throw new UnauthorizedException("Unauthorized");
     return this.userService.subscribe(currentUserId, id);
@@ -83,7 +71,7 @@ export class UserController {
   @UseGuards(AuthGuard("jwt"))
   @ApiParam({ name: "id", type: String })
   @ApiOkResponse({ description: "UnsubscribeUserResponse from @smth/shared" })
-  unsubscribe(@Param("id") id: string, @Request() req: RequestWithUser): Promise<UnsubscribeUserResponse> {
+  unsubscribe(@Param("id") id: string, @Request() req: RequestWithUserId): Promise<UnsubscribeUserResponse> {
     const currentUserId = req.user?.id;
     if (!currentUserId) throw new UnauthorizedException("Unauthorized");
     return this.userService.unsubscribe(currentUserId, id);
@@ -100,7 +88,7 @@ export class UserController {
   @UseGuards(AuthGuard("jwt"))
   @ApiParam({ name: "id", type: String })
   @ApiOkResponse({ description: "UserOtherArticlesResponse from @smth/shared" })
-  getOtherArticles(@Param("id") id: string, @Request() req: RequestWithUser): Promise<UserOtherArticlesResponse> {
+  getOtherArticles(@Param("id") id: string, @Request() req: RequestWithUserId): Promise<UserOtherArticlesResponse> {
     const currentUserId = req.user?.id;
     if (!currentUserId) throw new UnauthorizedException("Unauthorized");
     return this.userService.getOtherArticles(currentUserId, id);
@@ -110,7 +98,7 @@ export class UserController {
   @UseGuards(AuthGuard("jwt"))
   @ApiParam({ name: "id", type: String })
   @ApiOkResponse({ description: "UserLikedArticlesResponse from @smth/shared" })
-  getLikedArticles(@Param("id") id: string, @Request() req: RequestWithUser): Promise<UserLikedArticlesResponse> {
+  getLikedArticles(@Param("id") id: string, @Request() req: RequestWithUserId): Promise<UserLikedArticlesResponse> {
     const currentUserId = req.user?.id;
     if (!currentUserId) throw new UnauthorizedException("Unauthorized");
     return this.userService.getLikedArticles(currentUserId, id);
@@ -120,7 +108,7 @@ export class UserController {
   @UseGuards(AuthGuard("jwt"))
   @ApiParam({ name: "id", type: String })
   @ApiOkResponse({ description: "UserSavedArticlesResponse from @smth/shared" })
-  getSavedArticles(@Param("id") id: string, @Request() req: RequestWithUser): Promise<UserSavedArticlesResponse> {
+  getSavedArticles(@Param("id") id: string, @Request() req: RequestWithUserId): Promise<UserSavedArticlesResponse> {
     const currentUserId = req.user?.id;
     if (!currentUserId) throw new UnauthorizedException("Unauthorized");
     return this.userService.getSavedArticles(currentUserId, id);
@@ -158,9 +146,13 @@ export class UserController {
   @UseGuards(AuthGuard("jwt"))
   @ApiParam({ name: "id", type: String })
   @ApiOkResponse({ description: "IsSubscribedResponse from @smth/shared" })
-  isSubscribed(@Param("id") id: string, @Request() req: RequestWithUser): Promise<IsSubscribedResponse> {
+  isSubscribed(@Param("id") id: string, @Request() req: RequestWithUserId): Promise<IsSubscribedResponse> {
     const currentUserId = req.user?.id;
     if (!currentUserId) throw new UnauthorizedException("Unauthorized");
     return this.userService.isSubscribed(currentUserId, id);
   }
 }
+
+
+
+

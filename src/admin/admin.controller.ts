@@ -2,10 +2,13 @@ import { Body, Controller, Delete, Get, Param, Post, Put, Query, Request, Unauth
 import { AuthGuard } from "@nestjs/passport";
 import { ApiBody, ApiOkResponse, ApiParam, ApiQuery, ApiTags } from "@nestjs/swagger";
 import {
+  type AdminReviewArticleListQuery,
   AdminReviewArticleListQuerySchema,
   type AdminModerateArticleResponse,
   type AdminReviewArticleListResponse,
+  type AdminUserArticleListQuery,
   type AdminUserArticleListResponse,
+  type AdminUserListQuery,
   type AdminUserListResponse,
   AdminUserArticleListQuerySchema,
   AdminUserListQuerySchema,
@@ -14,41 +17,12 @@ import {
   type ReviewRemarkResponse,
   type ReviewRemarkUpsert,
 } from "@smth/shared";
-import type { Request as ExpressRequest } from "express";
-import { z } from "zod";
+import type { RequestWithUserId } from "../common/types/request.types";
 import { ZodValidationPipe } from "../common/pipes/zod-validation.pipe";
 import { Roles } from "../auth/roles.decorator";
 import { RolesGuard } from "../auth/roles.guard";
+import type { AdminModerateUserResponse } from "./admin.types";
 import { AdminService } from "./admin.service";
-
-type ReviewListQuery = z.infer<typeof AdminReviewArticleListQuerySchema>;
-type UserListQuery = z.infer<typeof AdminUserListQuerySchema>;
-type UserArticleListQuery = z.infer<typeof AdminUserArticleListQuerySchema>;
-type UpsertRemarkDto = z.infer<typeof ReviewRemarkUpsertSchema>;
-type RequestWithUser = ExpressRequest & {
-  user?: {
-    id: string;
-  };
-};
-type ZodSchemaLike = { parse: (value: unknown) => unknown };
-const asZodType = <T extends ZodSchemaLike>(schema: T) => schema as unknown as z.ZodType;
-type AdminModerateUserResponse = {
-  success: true;
-  data: {
-    id: string;
-    username: string;
-    firstname: string;
-    lastname: string;
-    avatar: string;
-    role: "user" | "moderator" | "admin";
-    email: string | null;
-    provider: string | null;
-    isBanned: boolean;
-    bannedAt: Date | null;
-    createdAt: Date;
-    updatedAt: Date;
-  };
-};
 
 @ApiTags("admin")
 @Controller("admin")
@@ -64,7 +38,7 @@ export class AdminController {
   @ApiQuery({ name: "authorId", required: false, type: String })
   @ApiOkResponse({ description: "AdminReviewArticleListResponse from @smth/shared" })
   listReviewArticles(
-    @Query(new ZodValidationPipe(asZodType(AdminReviewArticleListQuerySchema))) query: ReviewListQuery,
+    @Query(new ZodValidationPipe(AdminReviewArticleListQuerySchema)) query: AdminReviewArticleListQuery,
   ): Promise<AdminReviewArticleListResponse> {
     return this.adminService.listReviewArticles(query);
   }
@@ -74,7 +48,7 @@ export class AdminController {
   @ApiOkResponse({ description: "AdminModerateArticleResponse from @smth/shared" })
   approveArticle(
     @Param("id") id: string,
-    @Request() req: RequestWithUser,
+    @Request() req: RequestWithUserId,
   ): Promise<AdminModerateArticleResponse> {
     const userId = req.user?.id;
     if (!userId) throw new UnauthorizedException("Unauthorized");
@@ -86,7 +60,7 @@ export class AdminController {
   @ApiOkResponse({ description: "AdminModerateArticleResponse from @smth/shared" })
   rejectArticle(
     @Param("id") id: string,
-    @Request() req: RequestWithUser,
+    @Request() req: RequestWithUserId,
   ): Promise<AdminModerateArticleResponse> {
     const userId = req.user?.id;
     if (!userId) throw new UnauthorizedException("Unauthorized");
@@ -98,7 +72,7 @@ export class AdminController {
   @ApiOkResponse({ description: "AdminModerateArticleResponse from @smth/shared" })
   archiveArticle(
     @Param("id") id: string,
-    @Request() req: RequestWithUser,
+    @Request() req: RequestWithUserId,
   ): Promise<AdminModerateArticleResponse> {
     const userId = req.user?.id;
     if (!userId) throw new UnauthorizedException("Unauthorized");
@@ -110,7 +84,7 @@ export class AdminController {
   @ApiOkResponse({ description: "AdminModerateArticleResponse from @smth/shared" })
   publishArchivedArticle(
     @Param("id") id: string,
-    @Request() req: RequestWithUser,
+    @Request() req: RequestWithUserId,
   ): Promise<AdminModerateArticleResponse> {
     const userId = req.user?.id;
     if (!userId) throw new UnauthorizedException("Unauthorized");
@@ -123,7 +97,7 @@ export class AdminController {
   @ApiQuery({ name: "search", required: false, type: String })
   @ApiOkResponse({ description: "AdminUserListResponse from @smth/shared" })
   listUsers(
-    @Query(new ZodValidationPipe(asZodType(AdminUserListQuerySchema))) query: UserListQuery,
+    @Query(new ZodValidationPipe(AdminUserListQuerySchema)) query: AdminUserListQuery,
   ): Promise<AdminUserListResponse> {
     return this.adminService.listUsers(query);
   }
@@ -133,7 +107,7 @@ export class AdminController {
   @ApiOkResponse({ description: "AdminModerateUserResponse from @smth/shared" })
   banUser(
     @Param("id") id: string,
-    @Request() req: RequestWithUser,
+    @Request() req: RequestWithUserId,
   ): Promise<AdminModerateUserResponse> {
     const actorUserId = req.user?.id;
     if (!actorUserId) throw new UnauthorizedException("Unauthorized");
@@ -145,7 +119,7 @@ export class AdminController {
   @ApiOkResponse({ description: "AdminModerateUserResponse from @smth/shared" })
   unbanUser(
     @Param("id") id: string,
-    @Request() req: RequestWithUser,
+    @Request() req: RequestWithUserId,
   ): Promise<AdminModerateUserResponse> {
     const actorUserId = req.user?.id;
     if (!actorUserId) throw new UnauthorizedException("Unauthorized");
@@ -161,7 +135,7 @@ export class AdminController {
   @ApiOkResponse({ description: "AdminUserArticleListResponse from @smth/shared" })
   listUserArticles(
     @Param("id") id: string,
-    @Query(new ZodValidationPipe(asZodType(AdminUserArticleListQuerySchema))) query: UserArticleListQuery,
+    @Query(new ZodValidationPipe(AdminUserArticleListQuerySchema)) query: AdminUserArticleListQuery,
   ): Promise<AdminUserArticleListResponse> {
     return this.adminService.listUserArticles(id, query);
   }
@@ -181,8 +155,8 @@ export class AdminController {
   upsertArticleRemark(
     @Param("id") id: string,
     @Param("blockId") blockId: string,
-    @Body(new ZodValidationPipe(asZodType(ReviewRemarkUpsertSchema))) dto: UpsertRemarkDto,
-    @Request() req: RequestWithUser,
+    @Body(new ZodValidationPipe(ReviewRemarkUpsertSchema)) dto: ReviewRemarkUpsert,
+    @Request() req: RequestWithUserId,
   ): Promise<ReviewRemarkResponse> {
     const userId = req.user?.id;
     if (!userId) throw new UnauthorizedException("Unauthorized");
@@ -200,3 +174,6 @@ export class AdminController {
     return this.adminService.deleteArticleRemark(id, blockId);
   }
 }
+
+
+

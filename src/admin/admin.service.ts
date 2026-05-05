@@ -1,10 +1,13 @@
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import {
   AdminModerateArticleResponseSchema,
+  type AdminReviewArticleListQuery,
   AdminReviewArticleListResponseSchema,
   AdminReviewArticleListQuerySchema,
+  type AdminUserArticleListQuery,
   AdminUserArticleListResponseSchema,
   AdminUserArticleListQuerySchema,
+  type AdminUserListQuery,
   AdminUserListResponseSchema,
   AdminUserListQuerySchema,
   ReviewRemarkListResponseSchema,
@@ -18,30 +21,9 @@ import {
   type ReviewRemarkResponse,
   type ReviewRemarkUpsert,
 } from "@smth/shared";
-import type { z } from "zod";
 import { NotificationService } from "../notification/notification.service";
 import { PrismaService } from "../prisma/prisma.service";
-
-type ReviewArticleListQuery = z.infer<typeof AdminReviewArticleListQuerySchema>;
-type UserListQuery = z.infer<typeof AdminUserListQuerySchema>;
-type UserArticleListQuery = z.infer<typeof AdminUserArticleListQuerySchema>;
-type AdminModerateUserResponse = {
-  success: true;
-  data: {
-    id: string;
-    username: string;
-    firstname: string;
-    lastname: string;
-    avatar: string;
-    role: "user" | "moderator" | "admin";
-    email: string | null;
-    provider: string | null;
-    isBanned: boolean;
-    bannedAt: Date | null;
-    createdAt: Date;
-    updatedAt: Date;
-  };
-};
+import type { AdminModerateUserResponse } from "./admin.types";
 
 @Injectable()
 export class AdminService {
@@ -50,7 +32,7 @@ export class AdminService {
     private readonly notificationService: NotificationService,
   ) {}
 
-  async listReviewArticles(query: ReviewArticleListQuery): Promise<AdminReviewArticleListResponse> {
+  async listReviewArticles(query: AdminReviewArticleListQuery): Promise<AdminReviewArticleListResponse> {
     const parsedQuery = AdminReviewArticleListQuerySchema.parse(query);
     const { page, limit, search, authorId } = parsedQuery;
     const skip = (page - 1) * limit;
@@ -296,7 +278,7 @@ export class AdminService {
     });
   }
 
-  async listUsers(query: UserListQuery): Promise<AdminUserListResponse> {
+  async listUsers(query: AdminUserListQuery): Promise<AdminUserListResponse> {
     const parsedQuery = AdminUserListQuerySchema.parse(query);
     const { page, limit, search } = parsedQuery;
     const skip = (page - 1) * limit;
@@ -450,7 +432,7 @@ export class AdminService {
     };
   }
 
-  async listUserArticles(userId: string, query: UserArticleListQuery): Promise<AdminUserArticleListResponse> {
+  async listUserArticles(userId: string, query: AdminUserArticleListQuery): Promise<AdminUserArticleListResponse> {
     const parsedQuery = AdminUserArticleListQuerySchema.parse(query);
     const { page, limit, status, search } = parsedQuery;
     const skip = (page - 1) * limit;

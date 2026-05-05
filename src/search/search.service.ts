@@ -7,16 +7,14 @@ import {
   SearchCategoriesResponseSchema,
   SearchUsersQuerySchema,
   SearchUsersResponseSchema,
+  type SearchArticlesQuery,
   type SearchArticlesResponse,
+  type SearchCategoriesQuery,
   type SearchCategoriesResponse,
+  type SearchUsersQuery,
   type SearchUsersResponse,
 } from "@smth/shared";
-import type { z } from "zod";
 import { PrismaService } from "../prisma/prisma.service";
-
-type SearchUsersQuery = z.infer<typeof SearchUsersQuerySchema>;
-type SearchArticlesQuery = z.infer<typeof SearchArticlesQuerySchema>;
-type SearchCategoriesQuery = z.infer<typeof SearchCategoriesQuerySchema>;
 
 type UserSearchRow = {
   id: string;

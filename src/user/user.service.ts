@@ -19,10 +19,10 @@ import {
   UserSavedArticlesResponseSchema,
   type SubscribeUserResponse,
   type UnsubscribeUserResponse,
+  type UserProfileUpdate,
   type UserFollowersResponse,
   type UserFollowingResponse,
   type UserLikedArticlesResponse,
-  type UserMeta,
   type NotificationSettings,
   type UserOtherArticlesResponse,
   type UserPublishedArticlesResponse,
@@ -30,13 +30,9 @@ import {
   type UserSavedArticlesResponse,
 } from "@smth/shared";
 import { Prisma } from "@prisma/client";
-import type { z } from "zod";
 import { NotificationService } from "../notification/notification.service";
 import { PrismaService } from "../prisma/prisma.service";
-
-type UpdateDto = z.infer<typeof UpdateUserProfileSchema>;
-type UserMetaResponse = { success: true; data: UserMeta };
-type UserMetaListResponse = { success: true; data: UserMeta[] };
+import type { UserMetaListResponse, UserMetaResponse } from "./user.types";
 const DEFAULT_NOTIFICATION_SETTINGS: NotificationSettings = {
   likes: true,
   comments: true,
@@ -90,7 +86,7 @@ export class UserService {
     };
   }
 
-  async update(currentUserId: string, id: string, dto: UpdateDto): Promise<UserMetaResponse> {
+  async update(currentUserId: string, id: string, dto: UserProfileUpdate): Promise<UserMetaResponse> {
     this.ensureSelf(currentUserId, id);
 
     const existing = await this.prisma.user.findUnique({

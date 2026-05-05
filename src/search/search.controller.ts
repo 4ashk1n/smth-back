@@ -4,20 +4,16 @@ import {
   SearchArticlesQuerySchema,
   SearchCategoriesQuerySchema,
   SearchUsersQuerySchema,
+  type SearchArticlesQuery,
   type SearchArticlesResponse,
+  type SearchCategoriesQuery,
   type SearchCategoriesResponse,
+  type SearchUsersQuery,
   type SearchUsersResponse
 } from "@smth/shared";
-import { z } from "zod";
 import { ZodValidationPipe } from "../common/pipes/zod-validation.pipe";
 import { SearchService } from "./search.service";
 
-type SearchUsersQuery = z.infer<typeof SearchUsersQuerySchema>;
-type SearchArticlesQuery = z.infer<typeof SearchArticlesQuerySchema>;
-type SearchCategoriesQuery = z.infer<typeof SearchCategoriesQuerySchema>;
-
-type ZodSchemaLike = { parse: (value: unknown) => unknown };
-const asZodType = <T extends ZodSchemaLike>(schema: T) => schema as unknown as z.ZodType;
 
 @ApiTags("search")
 @Controller("search")
@@ -30,7 +26,7 @@ export class SearchController {
   @ApiQuery({ name: "limit", required: false, type: Number, default: 10 })
   @ApiOkResponse({ description: "SearchUsersResponse from @smth/shared" })
   searchUsers(
-    @Query(new ZodValidationPipe(asZodType(SearchUsersQuerySchema))) query: SearchUsersQuery,
+    @Query(new ZodValidationPipe(SearchUsersQuerySchema)) query: SearchUsersQuery,
   ): Promise<SearchUsersResponse> {
     return this.searchService.searchUsers(query);
   }
@@ -48,7 +44,7 @@ export class SearchController {
   })
   @ApiOkResponse({ description: "SearchArticlesResponse from @smth/shared" })
   searchArticles(
-    @Query(new ZodValidationPipe(asZodType(SearchArticlesQuerySchema))) query: SearchArticlesQuery,
+    @Query(new ZodValidationPipe(SearchArticlesQuerySchema)) query: SearchArticlesQuery,
   ): Promise<SearchArticlesResponse> {
     return this.searchService.searchArticles(query);
   }
@@ -59,8 +55,11 @@ export class SearchController {
   @ApiQuery({ name: "limit", required: false, type: Number })
   @ApiOkResponse({ description: "SearchCategoriesResponse from @smth/shared" })
   searchCategories(
-    @Query(new ZodValidationPipe(asZodType(SearchCategoriesQuerySchema))) query: SearchCategoriesQuery,
+    @Query(new ZodValidationPipe(SearchCategoriesQuerySchema)) query: SearchCategoriesQuery,
   ): Promise<SearchCategoriesResponse> {
     return this.searchService.searchCategories(query);
   }
 }
+
+
+

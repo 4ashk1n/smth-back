@@ -6,6 +6,7 @@ import {
   NotificationSettingsSchema,
   NotificationListQuerySchema,
   NotificationListResponseSchema,
+  type NotificationListQuery,
   type NotificationListResponse,
   type NotificationSettings,
   type NotificationType,
@@ -14,10 +15,8 @@ import {
   type MarkNotificationReadResponse,
   type UnreadNotificationsCountResponse,
 } from "@smth/shared";
-import type { z } from "zod";
 import { PrismaService } from "../prisma/prisma.service";
 
-type NotificationListQuery = z.infer<typeof NotificationListQuerySchema>;
 const DEFAULT_NOTIFICATION_SETTINGS: NotificationSettings = {
   likes: true,
   comments: true,

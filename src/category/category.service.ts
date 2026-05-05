@@ -1,11 +1,14 @@
 import { Injectable, NotFoundException } from "@nestjs/common";
 import {
   CategoryListResponseSchema,
+  type Category,
   CategoryResponseSchema,
   CategorySchema,
+  type CreateCategory,
   CreateCategoryResponseSchema,
   CreateCategorySchema,
   DeleteCategoryResponseSchema,
+  type UpdateCategory,
   UpdateCategoryResponseSchema,
   UpdateCategorySchema,
   type CategoryListResponse,
@@ -14,13 +17,8 @@ import {
   type DeleteCategoryResponse,
   type UpdateCategoryResponse,
 } from "@smth/shared";
-import type { z } from "zod";
 import { PrismaMapper } from "../common/utils/prisma-mapper.util";
 import { PrismaService } from "../prisma/prisma.service";
-
-type CategoryDto = z.infer<typeof CategorySchema>;
-type CreateDto = z.infer<typeof CreateCategorySchema>;
-type UpdateDto = z.infer<typeof UpdateCategorySchema>;
 
 @Injectable()
 export class CategoryService {
@@ -32,7 +30,7 @@ export class CategoryService {
       orderBy: { name: "asc" },
     });
 
-    const items: CategoryDto[] = rows.map((row) => PrismaMapper.toCategoryDTO(row));
+    const items: Category[] = rows.map((row) => PrismaMapper.toCategoryDTO(row));
     const parsed = CategorySchema.array().parse(items);
 
     return CategoryListResponseSchema.parse({ success: true, data: parsed });
@@ -49,7 +47,7 @@ export class CategoryService {
     return CategoryResponseSchema.parse({ success: true, data: CategorySchema.parse(dto) });
   }
 
-  async create(dto: CreateDto): Promise<CreateCategoryResponse> {
+  async create(dto: CreateCategory): Promise<CreateCategoryResponse> {
     const created = await this.prisma.category.create({
       data: {
         name: dto.name,
@@ -63,7 +61,7 @@ export class CategoryService {
     return CreateCategoryResponseSchema.parse({ success: true, data: CategorySchema.parse(data) });
   }
 
-  async update(id: string, dto: UpdateDto): Promise<UpdateCategoryResponse> {
+  async update(id: string, dto: UpdateCategory): Promise<UpdateCategoryResponse> {
     const existing = await this.prisma.category.findUnique({
       where: { id },
       select: { id: true },
