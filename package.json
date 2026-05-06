@@ -6,7 +6,7 @@
   "private": true,
   "license": "UNLICENSED",
   "scripts": {
-    "build": "nest build",
+    "build": "npm link ../smth-shared && nest build",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
     "start": "npm link ../smth-shared && nest start",
     "start:dev": "npm link ../smth-shared && nest start --watch",
