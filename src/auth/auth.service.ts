@@ -102,6 +102,55 @@ export class AuthService {
     });
   }
 
+  async validateYandexAuthCode(code: string) {
+    const token = await this.exchangeYandexAuthCode(code);
+    const profile = await this.fetchYandexProfile(token.access_token);
+    const yandexId = profile.id;
+
+    if (!yandexId) {
+      throw new UnauthorizedException('Yandex authentication failed');
+    }
+
+    const email = profile.defaultEmail?.toLowerCase() ?? profile.emails?.[0]?.toLowerCase() ?? null;
+    const displayName = profile.realName?.trim() || profile.displayName?.trim() || profile.login?.trim() || `yandex_${yandexId.slice(0, 8)}`;
+    const { firstname, lastname } = this.extractYandexName(displayName, profile.firstName, profile.lastName);
+    const avatar = this.buildYandexAvatarUrl(profile.defaultAvatarId);
+
+    const existing = await this.prisma.user.findFirst({
+      where: {
+        OR: [{ yandexId }, ...(email ? [{ email }] : [])],
+      },
+    });
+
+    if (existing) {
+      return this.prisma.user.update({
+        where: { id: existing.id },
+        data: {
+          yandexId,
+          email,
+          provider: 'yandex',
+          firstname,
+          lastname,
+          avatar,
+        },
+      });
+    }
+
+    const usernameBase = profile.login?.trim() || email?.split('@')[0] || `yandex_${yandexId.slice(0, 8)}`;
+    const username = await this.generateUniqueUsername(usernameBase);
+    return this.prisma.user.create({
+      data: {
+        username,
+        email,
+        yandexId,
+        provider: 'yandex',
+        firstname,
+        lastname,
+        avatar,
+      },
+    });
+  }
+
   async issueTokens(user: Pick<User, 'id' | 'email'>) {
     const accessTokenPayload: AccessTokenPayload = {
       sub: user.id,
@@ -152,6 +201,7 @@ export class AuthService {
         email: true,
         googleId: true,
         tiktokId: true,
+        yandexId: true,
         isBanned: true,
         bannedAt: true,
         username: true,
@@ -184,6 +234,7 @@ export class AuthService {
         email: user.email,
         googleId: user.googleId,
         tiktokId: user.tiktokId,
+        yandexId: user.yandexId,
         isBanned: user.isBanned,
         bannedAt: user.bannedAt,
         username: user.username,
@@ -228,6 +279,7 @@ export class AuthService {
         email: true,
         googleId: true,
         tiktokId: true,
+        yandexId: true,
         isBanned: true,
         bannedAt: true,
         username: true,
@@ -261,6 +313,20 @@ export class AuthService {
     const firstname = parts[0] || 'TikTok';
     const lastname = parts.slice(1).join(' ') || 'User';
     return { firstname, lastname };
+  }
+
+  private extractYandexName(displayName: string, firstName?: string | null, lastName?: string | null) {
+    const first = firstName?.trim() ?? '';
+    const last = lastName?.trim() ?? '';
+    if (first || last) return { firstname: first || 'Yandex', lastname: last || 'User' };
+
+    const cleaned = displayName.trim();
+    if (!cleaned) return { firstname: 'Yandex', lastname: 'User' };
+    const parts = cleaned.split(/\s+/);
+    return {
+      firstname: parts[0] || 'Yandex',
+      lastname: parts.slice(1).join(' ') || 'User',
+    };
   }
 
   private async exchangeTikTokAuthCode(code: string): Promise<{ access_token: string; open_id?: string }> {
@@ -319,6 +385,68 @@ export class AuthService {
     } catch {
       return {};
     }
+  }
+
+  private async exchangeYandexAuthCode(code: string): Promise<{ access_token: string }> {
+    const clientId = process.env.YANDEX_CLIENT_ID;
+    const clientSecret = process.env.YANDEX_CLIENT_SECRET;
+    if (!clientId || !clientSecret) {
+      throw new Error('YANDEX_CLIENT_ID or YANDEX_CLIENT_SECRET is not set');
+    }
+
+    const body = new URLSearchParams({
+      grant_type: 'authorization_code',
+      code,
+      client_id: clientId,
+      client_secret: clientSecret,
+    });
+
+    const response = await fetch('https://oauth.yandex.ru/token', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body,
+    });
+
+    const payload = (await response.json()) as YandexTokenResponse;
+    if (!response.ok || payload.error || !payload.access_token) {
+      throw new UnauthorizedException('Yandex authentication failed');
+    }
+
+    return {
+      access_token: payload.access_token,
+    };
+  }
+
+  private async fetchYandexProfile(accessToken: string) {
+    try {
+      const response = await fetch('https://login.yandex.ru/info?format=json', {
+        headers: {
+          Authorization: `OAuth ${accessToken}`,
+        },
+      });
+      if (!response.ok) return {};
+      const payload = (await response.json()) as YandexUserInfoResponseRaw;
+      return {
+        id: payload.id,
+        login: payload.login,
+        displayName: payload.display_name,
+        realName: payload.real_name,
+        defaultEmail: payload.default_email,
+        emails: payload.emails,
+        firstName: payload.first_name,
+        lastName: payload.last_name,
+        defaultAvatarId: payload.default_avatar_id,
+      } as YandexUserInfoResponse;
+    } catch {
+      return {};
+    }
+  }
+
+  private buildYandexAvatarUrl(defaultAvatarId?: string | null) {
+    if (!defaultAvatarId) return '';
+    return `https://avatars.yandex.net/get-yapic/${defaultAvatarId}/islands-200`;
   }
 
   private async generateUniqueUsername(base: string) {
@@ -394,4 +522,34 @@ type TikTokUserInfoResponse = {
     display_name?: string;
     avatar_url?: string;
   };
+};
+
+type YandexTokenResponse = {
+  access_token?: string;
+  error?: string;
+};
+
+type YandexUserInfoResponseRaw = {
+  id?: string;
+  login?: string;
+  display_name?: string;
+  real_name?: string;
+  default_email?: string;
+  emails?: string[];
+  first_name?: string;
+  last_name?: string;
+  default_avatar_id?: string;
+  [key: string]: unknown;
+};
+
+type YandexUserInfoResponse = {
+  id?: string;
+  login?: string;
+  displayName?: string;
+  realName?: string;
+  defaultEmail?: string;
+  emails?: string[];
+  firstName?: string;
+  lastName?: string;
+  defaultAvatarId?: string;
 };

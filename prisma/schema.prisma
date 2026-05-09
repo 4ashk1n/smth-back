@@ -17,6 +17,7 @@ model User {
   email            String?             @unique
   googleId         String?             @unique
   tiktokId         String?             @unique
+  yandexId         String?             @unique
   isBanned         Boolean             @default(false)
   bannedAt         DateTime?
   refreshTokenHash String?
